@@ -11,6 +11,7 @@ An interactive sand surface inside an open glass box. Dig trenches, push sand in
 - **Smooth:** redistribute nearby sand without changing its total volume.
 - **Water:** hold to pour. Water runs downhill and soaks into the sand; continued pouring leaves pools above the saturated material.
 - **Tap flow:** sets the pouring rate from 0–1000% (10×); 100% preserves the original water behaviour. This control appears when Water is selected.
+- **Fish:** click sufficiently deep, wide water to place a flowing-fin goldfish. Press **6** to select it. Up to eight fish share the Blender model and textures. They swim only where their body and fins fit beneath the simulated water surface and above the sand, and turn away from shorelines, sand barriers, and glass walls. If the water becomes too shallow, they stop swimming until it returns. Reset sand also clears fish.
 - **Orbit:** drag to move the camera. Right-drag also orbits while a sand tool is selected.
 - Scroll or pinch to zoom. Touch-drag sculpts; two fingers rotate and zoom.
 - **Size** changes the brush radius. **Reset sand** restores the initial surface; **Reset view** restores the camera.
@@ -43,6 +44,8 @@ The liquid uses a separate physical transmission material with water's 1.333 ref
 Four glass slabs have physical thickness, an index of refraction of 1.5, subtle absorption, reflections from a generated studio environment, and narrow polished edges. Balanced and High use physical transmission/refraction. Low uses simpler reflective transparency to avoid the extra refraction render pass. The starting camera fits the whole container and can orbit or zoom inside. The brush remains anchored while held so digging deeper does not slide the cursor away from a wall.
 
 ## Performance
+
+The original goldfish was authored and rendered in Blender, with a 2K scale atlas, modelled eyes and gills, fine fin rays, and fin/body morph targets. The editable source is `art-assets/goldfish/goldfish.blend`; `tools/build-goldfish.py` regenerates it and `public/models/goldfish.glb`. The GLB is approximately 6 MB and loads asynchronously. Each fish uses seven material batches and shares geometry and textures with the others. Fin membranes render in the opaque refraction capture so they remain aligned with the body beneath the water. Swimming collision checks sample the live water field across the fish's full footprint, including small dry pockets; they do not use decorative wave heights as navigable water.
 
 | Quality  | Mesh segments per side | Wind particles | Maximum pixel ratio | Terrain shadows |
 | -------- | ---------------------: | -------------: | ------------------: | --------------- |

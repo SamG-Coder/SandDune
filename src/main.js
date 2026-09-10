@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createEnclosure } from "./enclosure.js";
 import { createWater } from "./water.js";
+import { createFishSystem } from "./fish.js";
+import { sampleWater } from "./fish-habitat.js";
 import {
   windVector,
   QUALITY,
@@ -165,6 +167,7 @@ sky.renderOrder = -10;
 scene.add(sky);
 const enclosure = createEnclosure(renderer, scene, uniforms, shaderDefines);
 const waterDisplay = createWater(scene, uniforms, shaderDefines);
+const fishSystem = createFishSystem(scene, simulation);
 const particleGeometry = new THREE.BufferGeometry(),
   positions = new Float32Array(QUALITY.high.particles * 3),
   seeds = new Float32Array(QUALITY.high.particles * 4);
@@ -267,6 +270,7 @@ syncPause();
 $("reset").addEventListener("click", resetView);
 $("clear").addEventListener("click", () => {
   simulation.reset();
+  fishSystem.reset();
   uploadFields();
 });
 $("brush").addEventListener("input", (event) => {
@@ -285,11 +289,13 @@ function setTool(tool) {
   controls.touches.ONE = tool === "orbit" ? THREE.TOUCH.ROTATE : null;
   renderer.domElement.style.cursor = tool === "orbit" ? "grab" : "crosshair";
   $("hint").textContent =
-    tool === "orbit"
-      ? "Drag to orbit · Scroll / pinch to zoom"
-      : tool === "water"
-        ? "Hold to pour water · Right-drag to orbit · Scroll / pinch to zoom"
-        : "Drag to move sand · Right-drag to orbit · Scroll / pinch to zoom";
+    tool === "fish"
+      ? "Click deep water to add a goldfish · Right-drag to orbit"
+      : tool === "orbit"
+        ? "Drag to orbit · Scroll / pinch to zoom"
+        : tool === "water"
+          ? "Hold to pour water · Right-drag to orbit · Scroll / pinch to zoom"
+          : "Drag to move sand · Right-drag to orbit · Scroll / pinch to zoom";
   if (tool === "orbit") uniforms.uBrush.value.z = -1;
 }
 document
@@ -315,9 +321,9 @@ $("show-ui").addEventListener("click", toggleUI);
 addEventListener("keydown", (event) => {
   if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
   if (event.code === "KeyH") toggleUI();
-  if (/Digit[1-5]/.test(event.code))
+  if (/Digit[1-6]/.test(event.code))
     setTool(
-      ["dig", "pour", "smooth", "orbit", "water"][
+      ["dig", "pour", "smooth", "orbit", "water", "fish"][
         Number(event.code.slice(-1)) - 1
       ],
     );
@@ -348,6 +354,9 @@ function readPointer(event) {
 function pickSand() {
   raycaster.setFromCamera(pointer, camera);
   const ray = raycaster.ray;
+  const heightAt = (x, z) =>
+    simulation.sample(x, z) +
+    (state.tool === "fish" ? sampleWater(simulation, x, z) : 0);
   // Keep a held brush anchored as the surface moves underneath it. Recasting
   // against each deeper trench would slide the brush away from the glass.
   if (painting && strokePlaneY !== null && Math.abs(ray.direction.y) > 1e-6) {
@@ -362,13 +371,13 @@ function pickSand() {
   let previous = 0.2;
   for (let t = 1; t < 1200; t += Math.max(0.6, t * 0.012)) {
     const p = ray.at(t, new THREE.Vector3());
-    if (p.y < simulation.sample(p.x, p.z)) {
+    if (p.y < heightAt(p.x, p.z)) {
       let lo = previous,
         hi = t;
       for (let i = 0; i < 12; i++) {
         const mid = (lo + hi) / 2,
           q = ray.at(mid, new THREE.Vector3());
-        if (q.y < simulation.sample(q.x, q.z)) hi = mid;
+        if (q.y < heightAt(q.x, q.z)) hi = mid;
         else lo = mid;
       }
       const hit = ray.at((lo + hi) / 2, new THREE.Vector3());
@@ -391,6 +400,14 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   }
   if (event.button === 0 && state.tool !== "orbit") {
     const hit = pickSand();
+    if (state.tool === "fish") {
+      $("hint").textContent = hit
+        ? fishSystem.add(hit.x, hit.z)
+        : "Choose deeper, wider water for the goldfish.";
+      painting = false;
+      lastStroke = null;
+      return;
+    }
     strokePlaneY = hit?.y ?? null;
     painting = !!hit;
     lastStroke = null;
@@ -486,6 +503,7 @@ function frame(now) {
     }
   }
   waterDisplay.mesh.visible = simulation.hasWater;
+  fishSystem.update(state.paused ? 0 : delta);
   waterDisplay.stream.visible =
     painting && !!hit && state.tool === "water" && state.tapFlow > 0;
   if (hit) uniforms.uPourPoint.value.copy(hit);
@@ -557,6 +575,7 @@ window.sandDiagnostics = () => ({
   volume: simulation.volume(),
   waterVolume: simulation.waterVolume(),
   tapFlow: state.tapFlow,
+  fish: fishSystem.diagnostics(),
   maxWetness: simulation.hasWater
     ? Math.max(...simulation.moisture) / simulation.waterCapacity
     : 0,
@@ -566,6 +585,7 @@ window.sandDiagnostics = () => ({
 // Development-only inspection for tests; production exposes read-only metrics above.
 if (import.meta.env.DEV)
   window.sandTest = {
+    fishSystem,
     simulation,
     state,
     setTool,
