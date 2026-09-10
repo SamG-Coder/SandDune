@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#b99a72" />
+    <meta name="description" content="An interactive Three.js desert. Explore sculpted dunes, windblown sand, and changing desert light." />
+    <title>Sand — a wind-shaped world</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  </head>
+  <body>
+    <main id="world" aria-label="Interactive sand desert">
+      <div id="loading" role="status">Shaping the dunes<span></span></div>
+      <div id="error" role="alert" hidden></div>
+      <header class="interface masthead">
+        <div class="wordmark">SAND<span>EMULATION / 001</span></div>
+        <div class="header-actions"><span class="live-label"><i></i> A WIND-SHAPED WORLD</span><button id="hide-ui" class="icon-button" aria-label="Hide controls (H)" title="Hide controls (H)">↗</button></div>
+      </header>
+      <section class="interface place-label" aria-label="Scene information">
+        <div class="eyebrow">PROCEDURAL LANDSCAPES</div>
+        <h1>The dune sea<span>.</span></h1>
+        <p>Nothing stays still. Nothing is ever the same.</p>
+        <div class="coordinates"><span>24° 43′ N</span><span>46° 12′ E</span><span>IMAGINED TERRAIN</span></div>
+      </section>
+      <section class="interface controls" aria-label="Desert controls">
+        <div class="panel-heading"><span>ATMOSPHERE</span><button id="collapse" aria-expanded="true" aria-controls="settings" aria-label="Collapse atmosphere controls">−</button></div>
+        <div id="settings">
+          <div class="presets" role="group" aria-label="Atmosphere preset">
+            <button data-preset="golden" aria-pressed="true">Golden hour</button>
+            <button data-preset="day" aria-pressed="false">High sun</button>
+            <button data-preset="storm" aria-pressed="false">Sandstorm</button>
+          </div>
+          <label class="slider-label" for="wind">Wind speed <output id="wind-value" for="wind">12 km/h</output></label>
+          <input id="wind" type="range" min="0" max="40" step="1" value="12" />
+          <label class="slider-label" for="direction">Wind direction <output id="direction-value" for="direction">65°</output></label>
+          <input id="direction" type="range" min="0" max="360" step="1" value="65" />
+          <label class="slider-label" for="sun">Sun elevation <output id="sun-value" for="sun">16°</output></label>
+          <input id="sun" type="range" min="4" max="75" step="1" value="16" />
+          <div class="divider"></div>
+          <div class="setting-row"><label for="quality">Render quality</label><select id="quality"><option value="auto">Adaptive</option><option value="low">Low</option><option value="medium">Balanced</option><option value="high">High</option></select></div>
+          <div class="setting-row"><label for="orbit">Slow camera orbit</label><input id="orbit" type="checkbox" role="switch" /></div>
+          <div class="panel-actions"><button id="pause" aria-pressed="false">Ⅱ <span>Pause wind</span></button><button id="reset">↺ <span>Reset view</span></button></div>
+        </div>
+      </section>
+      <footer class="interface footer"><span class="gesture">DRAG TO EXPLORE <b>·</b> SCROLL TO WANDER</span><span id="stats" aria-label="Rendering statistics">WARMING UP</span><a href="https://github.com/SamG-Coder/SandDune" target="_blank" rel="noopener noreferrer">VIEW SOURCE ↗</a></footer>
+      <button id="show-ui" hidden>Show controls <kbd>H</kbd></button>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
