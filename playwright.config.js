@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 90000,
   use: {
     baseURL: "http://127.0.0.1:5173",
-    viewport: { width: 1365, height: 900 },
+    viewport: { width: 960, height: 640 },
     launchOptions: {
       args: [
         "--enable-webgl",

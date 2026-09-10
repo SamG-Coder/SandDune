@@ -3,6 +3,9 @@ import { test, expect } from "@playwright/test";
 test("real WebGL renders and pointer tools deform the sand field", async ({
   page,
 }) => {
+  const { width, height } = page.viewportSize();
+  const sx = (x) => x / 1365 * width;
+  const sy = (y) => y / 900 * height;
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
@@ -13,9 +16,10 @@ test("real WebGL renders and pointer tools deform the sand field", async ({
   await expect(page.locator("#loading")).toBeHidden();
   expect(await page.evaluate(() => sandDiagnostics().shaderErrors)).toBe(0);
   await page.locator("summary").click();
+  await page.locator("#quality").selectOption("low");
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await page.locator("summary").click();
-  await page.mouse.move(670, 560);
+  await page.mouse.move(sx(670), sy(560));
   await expect
     .poll(() => page.evaluate(() => sandDiagnostics().brush[2]))
     .toBeGreaterThan(0);
@@ -31,7 +35,7 @@ test("real WebGL renders and pointer tools deform the sand field", async ({
   await page.screenshot({ path: ".artifacts/sand-before.png" });
   await page.mouse.down();
   await page.waitForTimeout(1200);
-  await page.mouse.move(780, 605, { steps: 30 });
+  await page.mouse.move(sx(780), sy(605), { steps: 20 });
   await page.mouse.up();
   const after = await page.evaluate(
     ({ x, z }) => ({
@@ -43,7 +47,7 @@ test("real WebGL renders and pointer tools deform the sand field", async ({
   expect(after.height).toBeLessThan(before.height - 1);
   expect(Math.abs(after.volume - before.volume)).toBeLessThan(0.05);
   await page.getByRole("button", { name: "Pour", exact: true }).click();
-  await page.mouse.move(580, 530);
+  await page.mouse.move(sx(580), sy(530));
   await page.mouse.down();
   await page.waitForTimeout(2400);
   await page.mouse.up();
@@ -52,7 +56,7 @@ test("real WebGL renders and pointer tools deform the sand field", async ({
   );
   await page.screenshot({ path: ".artifacts/sand-sculpted.png" });
   await page.getByRole("button", { name: "Smooth", exact: true }).click();
-  await page.mouse.move(580, 530);
+  await page.mouse.move(sx(580), sy(530));
   await page.mouse.down();
   await page.waitForTimeout(300);
   await page.mouse.up();
@@ -60,9 +64,9 @@ test("real WebGL renders and pointer tools deform the sand field", async ({
   const cameraBefore = await page.evaluate(() =>
     sandTest.camera.position.toArray(),
   );
-  await page.mouse.move(750, 500);
+  await page.mouse.move(sx(750), sy(500));
   await page.mouse.down();
-  await page.mouse.move(850, 530, { steps: 10 });
+  await page.mouse.move(sx(850), sy(530), { steps: 10 });
   await page.mouse.up();
   expect(
     await page.evaluate(() => sandTest.camera.position.toArray()),
