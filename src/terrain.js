@@ -216,7 +216,7 @@ export class SandSimulation {
     return true;
   }
   step(dt, wind, direction) {
-    if (this.hasWater) this.stepWater(dt);
+    if (this.hasWater) this.stepWater(dt, wind, direction);
     const n = this.resolution,
       h = this.height,
       change = this.change,
@@ -315,9 +315,13 @@ export class SandSimulation {
       this.moistureChange[b] += carried;
     }
   }
-  stepWater(dt) {
+  stepWater(dt, wind = 0, direction = 0) {
     const n = this.resolution,
       capacity = this.waterCapacity;
+    const [windX, windZ] = windVector(direction);
+    // Artistic surface stress, bounded to the UI range. Only exposed liquid is
+    // driven; the existing donor limits and closed walls still conserve volume.
+    const windStress = 0.00035 * Math.min(40, Math.max(0, wind)) ** 2;
     this.waterChange.fill(0);
     this.moistureChange.fill(0);
     for (let i = 0; i < this.water.length; i++) {
@@ -328,7 +332,7 @@ export class SandSimulation {
       this.water[i] -= absorbed;
       this.moisture[i] += absorbed;
     }
-    const pair = (a, b, velocity) => {
+    const pair = (a, b, velocity, windComponent) => {
       const headA = this.height[a] + this.water[a],
         headB = this.height[b] + this.water[b];
       const weight = Math.min(this.weights[a], this.weights[b]);
@@ -344,6 +348,10 @@ export class SandSimulation {
         ((9.81 * faceDepth * (headA - headB)) / (this.cell * this.cell)) *
           dt *
           weight;
+      rate +=
+        ((windStress * windComponent * Math.min(faceDepth, 0.5)) / this.cell) *
+        dt *
+        weight;
       let flow = rate * dt;
       flow = Math.min(
         Math.max(flow, (-this.water[b] * this.weights[b]) / 4),
@@ -363,8 +371,8 @@ export class SandSimulation {
     for (let z = 0; z < n; z++)
       for (let x = 0; x < n; x++) {
         const i = z * n + x;
-        if (x < n - 1) pair(i, i + 1, this.flowX);
-        if (z < n - 1) pair(i, i + n, this.flowZ);
+        if (x < n - 1) pair(i, i + 1, this.flowX, windX);
+        if (z < n - 1) pair(i, i + n, this.flowZ, windZ);
       }
     for (let i = 0; i < this.water.length; i++) {
       this.water[i] = Math.max(

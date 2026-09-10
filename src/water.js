@@ -68,7 +68,7 @@ export function createWater(scene, uniforms, defines) {
     );
     shader.fragmentShader =
       waterGLSL +
-      "\nuniform float uTime;\nvarying vec2 vWaterPosition; varying float vWaterLevel;\n" +
+      "\nuniform float uTime;\nuniform float uWind;\nuniform vec2 uWindDirection;\nvarying vec2 vWaterPosition; varying float vWaterLevel;\n" +
       shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace(
       "#include <clipping_planes_fragment>",
@@ -89,14 +89,17 @@ export function createWater(scene, uniforms, defines) {
       normal=normalize(mat3(viewMatrix)*surfaceNormal);
       // The previous high-frequency crossed waves made a specular checkerboard.
       // Use shallow oblique waves and fade their normals below pixel resolution.
-      vec2 directionA=normalize(vec2(.93,.37));
-      vec2 directionB=normalize(vec2(-.41,.91));
-      float phaseA=dot(vWaterPosition,directionA)*.85-uTime*1.35;
-      float phaseB=dot(vWaterPosition,directionB)*.47-uTime*.83;
+      float windStrength=clamp(uWind/40.0,0.0,1.0);
+      vec2 directionA=uWindDirection;
+      vec2 directionB=normalize(directionA*.8+vec2(-directionA.y,directionA.x)*.6);
+      vec2 moving=vWaterPosition-uDrift*.25;
+      float phaseA=dot(moving,directionA)*.85-uTime*.3;
+      float phaseB=dot(moving,directionB)*.47-uTime*.2;
       float visibleA=1.0-smoothstep(.35,1.2,fwidth(phaseA));
       float visibleB=1.0-smoothstep(.35,1.2,fwidth(phaseB));
-      vec2 slope=directionA*cos(phaseA)*.004*visibleA
-                +directionB*cos(phaseB)*.002*visibleB;
+      float amplitude=.001+windStrength*windStrength*.018;
+      vec2 slope=directionA*cos(phaseA)*amplitude*visibleA
+                +directionB*cos(phaseB)*amplitude*.4*visibleB;
       vec3 rippleNormal=mat3(viewMatrix)*vec3(slope.x,0.0,slope.y);
       normal=normalize(normal+rippleNormal*smoothstep(.003,.1,liquid));
     `,

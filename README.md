@@ -32,6 +32,8 @@ The active 160 × 160 world-unit patch stores **37,249 height cells**. A fixed 3
 
 ## Water and wet sand
 
+Wind also drives exposed surface water. A bounded stress term adds momentum in the selected wind direction, with stronger forcing at higher speeds. Gravity, donor limits, and the glass boundaries continue to govern the resulting flow and conserve water volume. Visible ripples align with the wind, grow stronger, and move faster as wind increases; their pixel filtering preserves smooth highlights. This is an artistic coupling, not a meteorologically calibrated wave model.
+
 Free surface water and absorbed moisture are separate fields. A conservative pipe-flow approximation stores momentum across neighbouring cells, accelerates water under gravity, and limits outgoing flux to the available volume. Water spreads before it absorbs, pools in depressions, and remains inside the glass walls. Moisture moves with displaced sediment. Damp sand gains cohesion; saturation lowers the yield slope for a muddy slump and suppresses wind transport. These are artistic material responses rather than calibrated soil mechanics.
 
 The liquid uses a separate physical transmission material with water's 1.333 refractive index, depth-dependent optical thickness, subtle animated ripples, and studio reflections. The darker wet sediment is beneath the clear liquid. Both glass and water use screen-space transmission, so nested transparent surfaces have the usual raster-rendering limitations. A GPU points batch shows the pouring stream. Water fields and flow buffers are allocated once, and water updates are skipped until water is introduced.
