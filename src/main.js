@@ -22,6 +22,12 @@ try {
   throw error;
 }
 renderer.setClearColor(0xb99a72);
+renderer.debug.onShaderError = (gl, program, vertex, fragment) => {
+  console.error('Desert shader compilation failed', gl.getProgramInfoLog(program), gl.getShaderInfoLog(vertex), gl.getShaderInfoLog(fragment));
+  $('loading').hidden = true;
+  $('error').hidden = false;
+  $('error').textContent = 'Your graphics driver could not compile the desert shaders. Try updating your browser or graphics driver and reloading.';
+};
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
 renderer.domElement.setAttribute('aria-label', 'Three-dimensional dunes with animated windblown sand. Drag to orbit and scroll to zoom.');

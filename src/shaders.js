@@ -76,7 +76,7 @@ void main() {
   vec3 color=albedo*(ambient+sunlight*ndl*shade);
   // Broad grazing response gives dry grains a soft, powdery appearance.
   vec3 viewDirection=normalize(cameraPosition-vWorld);
-  float grazing=pow(1.0-max(dot(n,viewDirection),0.0),3.0);
+  float grazing=pow(1.0-clamp(dot(n,viewDirection),0.0,1.0),3.0);
   color+=uSand*grazing*0.11*shade;
   float sparkle=pow(max(dot(reflect(-uSun,n),viewDirection),0.0),28.0);
   color+=vec3(1.0,0.83,0.53)*sparkle*0.065*shade;

@@ -64,6 +64,8 @@ A sky shader provides the horizon gradient, sun disc, and dusty glow. Exponentia
 - **Zero terrain textures:** sand detail lives in the shaders. Fonts use Google Fonts with local sans-serif fallbacks.
 - Inspect live metrics in the footer or call `sandDiagnostics()` in the browser console. FPS is measured locally; no universal 60 FPS claim is made.
 
+Validation covers authored GLSL syntax, CPU/GPU height-function parity, terrain bounds and continuity, wind vectors, and quality transitions. GLSL syntax parsing does not replace driver compilation or a visual review on target hardware. The page reports shader compilation failures. Optional WebMCP tools are feature-detected; they require a compatible browser and were not validated in a supported WebMCP context during initial setup.
+
 The most expensive stage is fragment shading at high resolutions. Lower pixel ratio or disable the height-field shadows before increasing mesh density. For a substantially larger freely explorable world, replace the bounded grid with camera-centered LOD rings and introduce world-origin rebasing. For physically accumulated sand, add a height-field erosion/transport compute stage; increasing particle count alone will not produce dune physics.
 
 ## Deployment
