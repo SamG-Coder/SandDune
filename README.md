@@ -1,12 +1,58 @@
-# SAND / Emulation
+# Sand
 
-A real-time, wind-shaped desert built with Three.js and GLSL. Sculpted dune crests, moving sand ripples, fine airborne grains, and soft atmospheric light, with a small interface for exploring the conditions.
+**[Open the simulation](https://samg-coder.github.io/SandDune/)** · **[Actions](https://github.com/SamG-Coder/SandDune/actions)**
 
-**[Explore the desert](https://samg-coder.github.io/SandDune/)** · **[Build and deployment](https://github.com/SamG-Coder/SandDune/actions)**
+An interactive Three.js sand surface. Dig trenches, push sand into their rims, pour piles, and watch gravity settle unstable slopes while wind transports and redeposits material. The interface consists of a compact tool strip and optional wind/light controls.
 
-## Run locally
+## Use
 
-Requires Node.js 24 and a browser with WebGL 2 and hardware acceleration.
+- **Dig:** drag to displace sand into the edges of a trench. Removed volume is deposited in the surrounding rim.
+- **Pour:** hold or drag to add sand. High piles avalanche down their sides.
+- **Smooth:** redistribute nearby sand without changing its total volume.
+- **Orbit:** drag to move the camera. Right-drag also orbits while a sand tool is selected.
+- Scroll or pinch to zoom. Touch-drag sculpts; two fingers rotate and zoom.
+- **Size** changes the brush radius. **Reset sand** restores the initial surface; **Reset view** restores the camera.
+- Open **Wind & light** to adjust speed, direction, sunlight, rendering quality, or pause.
+- Keys **1–4** select tools, **Space** pauses/resumes physics, **R** resets the view, and **H** hides/restores controls. Form fields retain their normal keyboard behaviour.
+- Reduced-motion preferences start the simulation paused. You can still sculpt and resume explicitly.
+
+## Material behaviour
+
+The active 160 × 160 world-unit patch stores **37,249 height cells**. A fixed 30 Hz finite-volume update changes actual surface heights. Rendering, camera clearance, and pointer picking read this same state. It persists when the pointer is released; it is not an animated normal-map illusion.
+
+**Gravity and angle of repose.** Sand transfers between eight neighbouring cells only when a slope exceeds its repose threshold. Cardinal slopes use a rise/run threshold of 0.62 (about 32°); diagonal thresholds scale with distance. A stable pile stops flowing when wind is off. Pairwise transfers conserve volume, and donor limits prevent removing more material than a cell contains.
+
+**Wind transport.** Upwind advection moves sand in the chosen direction. A diffusive transport term softens sharp disturbances as erosion and deposition progress. Changing wind direction reverses transport. Wind below the model's entrainment threshold does not move the resting surface. This is an artistic, accelerated transport model; the km/h control is not meteorologically calibrated.
+
+**Direct interaction.** Digging removes available material from the brush core and deposits that exact amount in its rim. Pouring intentionally introduces new sand. Smoothing redistributes existing material. A fixed underlying floor prevents unlimited digging. The outer cells exchange no mass, so sand remains inside the simulated patch.
+
+**Rendering.** Irregular, individually placed asymmetric drifts replace a periodic dune pattern. The central height field is uploaded as a small float texture only when it changes. The terrain vertex shader displaces a dense central mesh; the fragment shader shades the resulting slopes and subtle grain detail. Distant terrain is static. Windborne visual grains use a separate GPU-animated points batch. Those grains visualize transport already handled by the height-field solver, rather than adding a second source of material.
+
+## Performance
+
+| Quality | Mesh segments per side | Wind particles | Maximum pixel ratio | Terrain shadows |
+| --- | ---: | ---: | ---: | --- |
+| Low | 256 | 1,600 | 1.00 | Off |
+| Balanced | 352 | 4,200 | 1.30 | On |
+| High | 448 | 8,000 | 1.65 | On |
+
+- Three draw calls: terrain, sky, and airborne sand. The brush outline is shaded directly on the terrain.
+- Hardware float-texture filtering is used when available, with a manual bilinear fallback.
+- The framebuffer is capped at approximately 2.8 million pixels.
+- Adaptive quality lowers a tier when sustained FPS falls below 36 and can recover from Low to Balanced above 57, with a cooldown to limit repeated changes.
+- The physics resolution is independent of graphics quality, so changing quality preserves sculpted details and sand state.
+- Hidden tabs stop simulation and rendering. Graphics context recovery is handled.
+- `sandDiagnostics()` reports current rendering and simulation statistics. The development server also exposes `sandTest` for regression tests; that mutable test hook is absent from production builds.
+
+An initial local benchmark measured approximately **1.7 ms per simulation step** for 37,249 cells, averaged over 300 steps. This measures only CPU physics on the development machine, not full-frame performance or a guarantee for other devices. The on-screen FPS counter measures the actual browser.
+
+## Limits
+
+This is a real-time height-field approximation of dry sand, not a discrete-element simulation of every grain. It models persistent deformation, mass transfer, wind transport, finite depth, and slope collapse. It does not model overhangs, buried objects, cohesion from moisture, or grain-level friction and collision. Physics runs only inside the central patch; the wider desert provides a static backdrop. A physically calibrated sediment model or arbitrary 3D granular volumes would require a different solver and a larger compute budget.
+
+## Run and test
+
+Requires Node.js 24 and a WebGL 2 browser with hardware acceleration recommended.
 
 ```sh
 npm ci
@@ -14,71 +60,24 @@ npm run dev
 ```
 
 ```sh
-npm test       # terrain, wind, adaptive quality, and shader syntax checks
-npm run build # production static files in dist/
+npm test
+npx playwright install chromium
+npm run test:browser
+npm run build
 npm run preview
 ```
 
-## Explore
+The unit suite checks mass conservation, repose settling, stable rest, downwind movement and reversal, finite depth, smoothing, reset, sampling, and GLSL syntax. The browser suite checks actual WebGL shader compilation, mouse-driven deformation, pouring, camera movement, reset, mobile layout, reduced motion, and quality changes. Screenshots from browser tests are saved locally under `.artifacts/` and are ignored by Git.
 
-- Drag / touch-drag to orbit. Scroll / pinch to move closer or farther away.
-- Change wind speed (0–40 km/h), wind direction, and sun elevation.
-- Try **Golden hour**, **High sun**, and **Sandstorm**.
-- Enable **Slow camera orbit** for an unattended view.
-- **Space** pauses wind; **R** resets the camera; **H** hides or restores controls. Keyboard shortcuts work outside form fields. Buttons and sliders are keyboard accessible.
-- **Adaptive** rendering starts at Balanced on desktop and Low on narrow screens. You can also choose a fixed quality.
-- The wind starts paused when the operating system requests reduced motion. Hidden tabs stop rendering.
+## Public deployment
 
-## How the sand works
+GitHub Actions installs locked dependencies, runs the physics and browser suites, builds with Vite, and deploys `dist/` to GitHub Pages on pushes to `main`. Pull requests validate without deploying. Assets use relative URLs for the `/SandDune/` project path. No deployment credentials are stored in the repository.
 
-This is a visual emulation, not a granular physics or erosion solver. The speed readout controls an artistic mapping of wind to visible transport; it is not a calibrated meteorological simulation. The displayed coordinates are evocative, not a claim that the terrain reproduces that real location.
+## References
 
-### 1. Dune geometry
+- [Three.js ShaderMaterial](https://threejs.org/docs/pages/ShaderMaterial.html)
+- [Three.js DataTexture](https://threejs.org/docs/pages/DataTexture.html)
+- [Three.js WebGLRenderer](https://threejs.org/docs/pages/WebGLRenderer.html)
+- [GitHub Pages custom workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
 
-A deterministic height field produces wandering ridgelines and rounded troughs. The vertex shader evaluates the field and its gradient on a nonuniform grid, concentrating vertices in the central area explored by the camera. Dunes move very slowly with integrated wind displacement. A matching CPU function keeps the camera above the current ground.
-
-### 2. Surface detail
-
-Wind advects procedural ripples and a thin sand veil in the fragment shader. Ripples perturb the lighting normal rather than adding geometry. Screen-space derivatives fade them when they become too small to resolve, preventing distant moiré. Fine grain, broad grazing response, warm illumination, and cooler ambient shading give the surface its powdery finish. No texture downloads or Blender baking are required.
-
-### 3. Airborne sand
-
-One points draw call animates fixed seed buffers entirely on the GPU. Grains wrap around a bounded field, follow the dune height, and hop in gusts. Soft alpha edges and depth testing integrate them with the ground. Wind displacement is integrated, so adjusting speed or direction does not teleport the terrain.
-
-### 4. Light and atmosphere
-
-A sky shader provides the horizon gradient, sun disc, and dusty glow. Exponential aerial perspective merges distant dunes into the horizon. Balanced and High use a bounded six-sample height-field visibility estimate for soft dune shadows. This approximate method can miss distant occluders; it avoids a separate dynamic shadow-map pass. Low uses local normal-based lighting only.
-
-## Performance design
-
-| Quality | Terrain segments per side | Terrain triangles | Sand particles | Maximum pixel ratio | Height-field shadows |
-| --- | ---: | ---: | ---: | ---: | --- |
-| Low | 160 | 51,200 | 2,200 | 1.00 | No |
-| Balanced | 256 | 131,072 | 5,500 | 1.35 | Yes |
-| High | 384 | 294,912 | 11,000 | 1.75 | Yes |
-
-- **Three draw calls:** sky, terrain, and particles. No full-screen postprocessing chain and no per-frame geometry uploads.
-- **Framebuffer cap:** at most approximately 3.6 million pixels, in addition to the quality and device pixel-ratio limits.
-- **Adaptive quality:** after a ten-second cooldown, sustained sampling below 36 FPS reduces one tier. Low can recover to Balanced above 57 FPS. High is an explicit choice.
-- **Lifecycle:** animation stops in hidden tabs, frame delta is clamped on resumption, and context-loss recovery is handled.
-- **Zero terrain textures:** sand detail lives in the shaders. Fonts use Google Fonts with local sans-serif fallbacks.
-- Inspect live metrics in the footer or call `sandDiagnostics()` in the browser console. FPS is measured locally; no universal 60 FPS claim is made.
-
-Validation covers authored GLSL syntax, CPU/GPU height-function parity, terrain bounds and continuity, wind vectors, and quality transitions. GLSL syntax parsing does not replace driver compilation or a visual review on target hardware. The page reports shader compilation failures. Optional WebMCP tools are feature-detected; they require a compatible browser and were not validated in a supported WebMCP context during initial setup.
-
-The most expensive stage is fragment shading at high resolutions. Lower pixel ratio or disable the height-field shadows before increasing mesh density. For a substantially larger freely explorable world, replace the bounded grid with camera-centered LOD rings and introduce world-origin rebasing. For physically accumulated sand, add a height-field erosion/transport compute stage; increasing particle count alone will not produce dune physics.
-
-## Deployment
-
-The public repository uses GitHub Pages with GitHub Actions as its source. Each push to `main` installs locked dependencies, runs tests, builds with Vite, uploads `dist`, and deploys to Pages. Pull requests run validation and build without deploying. All asset paths are relative, so the build works under the `/SandDune/` project path.
-
-The workflow uses read-only repository permission during build. Only the deployment job receives Pages write and OIDC permissions. No deployment tokens or secrets are stored in the project.
-
-## Sources and implementation references
-
-- [Three.js ShaderMaterial](https://threejs.org/docs/pages/ShaderMaterial.html): custom GLSL materials and uniform updates.
-- [Three.js BufferGeometry](https://threejs.org/docs/pages/BufferGeometry.html): reusable vertex and particle buffers.
-- [Three.js WebGLRenderer](https://threejs.org/docs/pages/WebGLRenderer.html): pixel ratio, rendering statistics, tone mapping, and WebGL behavior.
-- [GitHub custom Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages): artifact-based build and deployment.
-
-MIT licensed. Three.js and the build toolchain retain their respective licenses.
+MIT licensed. Dependencies retain their own licenses.

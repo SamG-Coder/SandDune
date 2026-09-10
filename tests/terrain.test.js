@@ -1,47 +1,130 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { terrainHeight, chooseAdaptiveQuality, windVector, QUALITY } from '../src/terrain.js';
-
-test('the complete rendered terrain stays finite and inside its conservative bounds', () => {
-  for (const drift of [0, 100, 10000]) {
-    for (let x = -950; x <= 950; x += 19) {
-      for (let z = -950; z <= 950; z += 19) {
-        const height = terrainHeight(x, z, drift, -drift);
-        assert.ok(Number.isFinite(height) && height > -20 && height < 40, `Invalid height at ${x},${z}: ${height}`);
-      }
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  SandSimulation,
+  terrainHeight,
+  windVector,
+  chooseAdaptiveQuality,
+} from "../src/terrain.js";
+const flat = () => new SandSimulation(65, 32, () => 0);
+const maximumSlope = (s) => {
+  let max = 0;
+  const n = s.resolution;
+  for (let z = 2; z < n - 3; z++)
+    for (let x = 2; x < n - 3; x++) {
+      const i = z * n + x;
+      max = Math.max(
+        max,
+        Math.abs(s.height[i] - s.height[i + 1]) / s.cell,
+        Math.abs(s.height[i] - s.height[i + n]) / s.cell,
+      );
     }
+  return max;
+};
+test("digging displaces sand into a rim without destroying volume", () => {
+  const s = flat(),
+    v = s.volume();
+  s.brush(0, 0, 2.5, 2, "dig");
+  assert.ok(s.sample(0, 0) < -1.9);
+  assert.ok(s.sample(3, 0) > 0);
+  assert.ok(Math.abs(s.volume() - v) < 1e-4);
+});
+test("pouring adds material and a steep pile settles to its angle of repose", () => {
+  const s = flat();
+  s.brush(0, 0, 2, 12, "pour");
+  const peak = s.sample(0, 0),
+    volume = s.volume();
+  assert.ok(maximumSlope(s) > 2);
+  for (let i = 0; i < 1200; i++) s.step(1 / 30, 0, 0);
+  assert.ok(s.sample(0, 0) < peak * 0.6);
+  assert.ok(maximumSlope(s) < 0.64);
+  assert.ok(Math.abs(s.volume() - volume) < 0.003);
+});
+test("sand at rest below the repose threshold stays still without wind", () => {
+  const s = flat();
+  s.brush(0, 0, 4, 0.5, "pour");
+  const before = s.height.slice();
+  for (let i = 0; i < 120; i++) s.step(1 / 30, 0, 0);
+  assert.deepEqual(s.height, before);
+});
+test("wind translates deposited material downwind, reversing when wind reverses", () => {
+  for (const direction of [0, 180]) {
+    const background = flat(),
+      pile = flat();
+    pile.brush(0, 0, 3, 1, "pour");
+    const volume = pile.volume();
+    for (let i = 0; i < 600; i++) {
+      background.step(1 / 30, 30, direction);
+      pile.step(1 / 30, 30, direction);
+    }
+    let mass = 0,
+      moment = 0;
+    for (let z = 2; z < 63; z++)
+      for (let x = 2; x < 63; x++) {
+        const i = z * 65 + x,
+          d = pile.height[i] - background.height[i];
+        mass += d;
+        moment += d * (x * pile.cell - 16);
+      }
+    assert.ok(
+      (moment / mass) * (direction === 0 ? 1 : -1) > 0.2,
+      `centroid ${moment / mass}`,
+    );
+    assert.ok(Math.abs(pile.volume() - volume) < 0.005);
   }
 });
-
-test('wind drift translates the landform without changing its shape', () => {
-  for (const [x, z] of [[0, 0], [120, -50], [-435, 234]]) {
-    assert.ok(Math.abs(terrainHeight(x, z, 250, -110) - terrainHeight(x - 4.5, z + 1.98)) < 1e-10);
-  }
+test("wind and avalanches conserve total sand over sustained simulation", () => {
+  const s = flat();
+  s.brush(0, 0, 3, 6, "pour");
+  s.brush(-5, 2, 2, 2, "dig");
+  const volume = s.volume();
+  for (let i = 0; i < 900; i++) s.step(1 / 30, 40, 65);
+  assert.ok(Math.abs(s.volume() - volume) < 0.005);
+  assert.ok(s.height.every(Number.isFinite));
+  assert.ok(s.height.every((h) => h >= s.bedrock - 1e-5));
 });
-
-test('camera clearance field has no height discontinuities at dune crests', () => {
-  for (let x = -200; x < 200; x += 0.2) {
-    assert.ok(Math.abs(terrainHeight(x + 0.001, 37) - terrainHeight(x, 37)) < 0.005);
-  }
+test("digging cannot remove sand beneath the finite sand layer", () => {
+  const s = flat(),
+    volume = s.volume();
+  for (let i = 0; i < 50; i++) s.brush(0, 0, 2, 2, "dig");
+  assert.ok(s.sample(0, 0) >= s.bedrock);
+  assert.ok(Math.abs(s.volume() - volume) < 0.005);
 });
-
-test('wind direction wraps continuously and keeps speed constant', () => {
-  for (let degrees = 0; degrees <= 360; degrees++) {
-    const [x, z] = windVector(degrees);
-    assert.ok(Math.abs(Math.hypot(x, z) - 1) < 1e-12);
-  }
-  assert.ok(Math.abs(windVector(0)[0] - windVector(360)[0]) < 1e-12);
-  assert.ok(Math.abs(windVector(90)[0]) < 1e-12);
-  assert.equal(windVector(90)[1], 1);
+test("smoothing conserves volume and reset restores the original field", () => {
+  const s = flat();
+  s.brush(0, 0, 2, 4, "pour");
+  const v = s.volume(),
+    peak = s.sample(0, 0);
+  for (let i = 0; i < 20; i++) s.brush(0, 0, 4, 0.2, "smooth");
+  assert.ok(s.sample(0, 0) < peak);
+  assert.ok(Math.abs(s.volume() - v) < 0.001);
+  s.reset();
+  assert.deepEqual(s.height, s.base);
 });
-
-test('adaptive quality steps down under load and avoids oscillating near thresholds', () => {
-  assert.equal(chooseAdaptiveQuality(24, 'high'), 'medium');
-  assert.equal(chooseAdaptiveQuality(24, 'medium'), 'low');
-  assert.equal(chooseAdaptiveQuality(24, 'low'), 'low');
-  assert.equal(chooseAdaptiveQuality(48, 'low'), 'low');
-  assert.equal(chooseAdaptiveQuality(48, 'medium'), 'medium');
-  assert.equal(chooseAdaptiveQuality(60, 'low'), 'medium');
-  assert.equal(chooseAdaptiveQuality(60, 'medium'), 'medium');
-  assert.ok(QUALITY.low.particles < QUALITY.medium.particles && QUALITY.medium.particles < QUALITY.high.particles);
+test("out-of-bounds and invalid brushes leave the field untouched", () => {
+  const s = flat(),
+    copy = s.height.slice();
+  assert.equal(s.brush(16, 0, 3, 1), false);
+  assert.equal(s.brush(NaN, 0, 3, 1), false);
+  assert.equal(s.brush(0, 0, 0, 1), false);
+  assert.deepEqual(s.height, copy);
+});
+test("height sampling agrees with grid vertices and bilinear cell centres", () => {
+  const s = new SandSimulation(33, 32, (x, z) => x * 0.1 + z * 0.05);
+  assert.ok(Math.abs(s.sample(0, 0)) < 1e-6);
+  assert.ok(Math.abs(s.sample(0.5, 0.5) - 0.075) < 1e-6);
+});
+test("the nonperiodic desert remains finite over the rendered world", () => {
+  for (let x = -700; x <= 700; x += 23)
+    for (let z = -700; z <= 700; z += 23) {
+      const h = terrainHeight(x, z);
+      assert.ok(Number.isFinite(h) && h > -4 && h < 90);
+    }
+});
+test("wind vectors and adaptive rendering have bounded behaviour", () => {
+  for (let a = 0; a <= 360; a++)
+    assert.ok(Math.abs(Math.hypot(...windVector(a)) - 1) < 1e-12);
+  assert.equal(chooseAdaptiveQuality(25, "medium"), "low");
+  assert.equal(chooseAdaptiveQuality(60, "low"), "medium");
+  assert.equal(chooseAdaptiveQuality(48, "medium"), "medium");
 });

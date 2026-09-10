@@ -3,3 +3,5 @@ dist/
 .sites-runtime/
 .artifacts/
 *.local
+test-results/
+playwright-report/
