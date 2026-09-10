@@ -10,6 +10,7 @@ An interactive sand surface inside an open glass box. Dig trenches, push sand in
 - **Pour:** hold or drag to add sand. High piles avalanche down their sides.
 - **Smooth:** redistribute nearby sand without changing its total volume.
 - **Water:** hold to pour. Water runs downhill and soaks into the sand; continued pouring leaves pools above the saturated material.
+- **Tap flow:** sets the pouring rate from 0–300%; 100% preserves the original water behaviour. This control appears when Water is selected.
 - **Orbit:** drag to move the camera. Right-drag also orbits while a sand tool is selected.
 - Scroll or pinch to zoom. Touch-drag sculpts; two fingers rotate and zoom.
 - **Size** changes the brush radius. **Reset sand** restores the initial surface; **Reset view** restores the camera.

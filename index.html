@@ -43,7 +43,19 @@
           step="0.2"
           value="3.2"
           aria-label="Brush size"
-        /><button id="clear" title="Reset sand and water">Reset sand</button>
+        /><span id="tap-controls" hidden
+          ><label for="tap-flow">Tap flow</label>
+          <input
+            id="tap-flow"
+            type="range"
+            min="0"
+            max="3"
+            step="0.1"
+            value="1"
+            aria-label="Tap flow"
+          />
+          <output id="tap-flow-value">100%</output></span
+        ><button id="clear" title="Reset sand and water">Reset sand</button>
       </div>
       <details class="interface conditions">
         <summary>Wind &amp; light</summary>

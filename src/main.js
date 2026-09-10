@@ -27,6 +27,7 @@ const state = {
   quality: "auto",
   tool: "dig",
   radius: 3.2,
+  tapFlow: 1,
 };
 const simulation = new SandSimulation();
 let renderer;
@@ -271,6 +272,7 @@ $("brush").addEventListener("input", (event) => {
   state.radius = Number(event.target.value);
 });
 function setTool(tool) {
+  $("tap-controls").hidden = tool !== "water";
   state.tool = tool;
   uniforms.uWaterTool.value = tool === "water" ? 1 : 0;
   document
@@ -295,6 +297,10 @@ document
     button.addEventListener("click", () => setTool(button.dataset.tool)),
   );
 setTool("dig");
+$("tap-flow").addEventListener("input", (event) => {
+  state.tapFlow = Number(event.target.value);
+  $("tap-flow-value").textContent = Math.round(state.tapFlow * 100) + "%";
+});
 function toggleUI() {
   const hidden = document.body.classList.toggle("clean");
   document.querySelectorAll(".interface").forEach((el) => {
@@ -395,7 +401,13 @@ function finishPointer(event) {
   if (event.type === "pointerup" && painting && !lastStroke) {
     const hit = pickSand();
     if (hit) {
-      simulation.brush(hit.x, hit.z, state.radius, 0.2, state.tool);
+      simulation.brush(
+        hit.x,
+        hit.z,
+        state.radius,
+        0.2 * (state.tool === "water" ? state.tapFlow : 1),
+        state.tool,
+      );
       uploadFields();
     }
   }
@@ -450,7 +462,7 @@ function frame(now) {
         THREE.MathUtils.lerp(start.x, hit.x, i / steps),
         THREE.MathUtils.lerp(start.z, hit.z, i / steps),
         state.radius,
-        (delta * 3.8) / steps,
+        (delta * 3.8 * (state.tool === "water" ? state.tapFlow : 1)) / steps,
         state.tool,
       );
     lastStroke = hit.clone();
@@ -473,7 +485,8 @@ function frame(now) {
     }
   }
   waterDisplay.mesh.visible = simulation.hasWater;
-  waterDisplay.stream.visible = painting && !!hit && state.tool === "water";
+  waterDisplay.stream.visible =
+    painting && !!hit && state.tool === "water" && state.tapFlow > 0;
   if (hit) uniforms.uPourPoint.value.copy(hit);
   renderer.render(scene, camera);
   if (!started) {
@@ -542,6 +555,7 @@ window.sandDiagnostics = () => ({
   simulationVersion: simulation.version,
   volume: simulation.volume(),
   waterVolume: simulation.waterVolume(),
+  tapFlow: state.tapFlow,
   maxWetness: simulation.hasWater
     ? Math.max(...simulation.moisture) / simulation.waterCapacity
     : 0,
