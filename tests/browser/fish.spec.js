@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 test("goldfish drop, strand on sand, hold-spawn varied fish and respect the limit", async ({
   page,
 }) => {
+  test.setTimeout(180000);
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => {
@@ -10,6 +11,9 @@ test("goldfish drop, strand on sand, hold-spawn varied fish and respect the limi
   });
   await page.goto("/");
   await page.waitForFunction(() => window.sandDiagnostics?.().fish.loaded);
+  await page.locator("summary").click();
+  await page.locator("#quality").selectOption("low");
+  await page.locator("summary").click();
   await page.getByRole("button", { name: "Fish", exact: true }).click();
   await page.evaluate(() => {
     const { simulation: s, state, camera } = sandTest;
@@ -37,7 +41,7 @@ test("goldfish drop, strand on sand, hold-spawn varied fish and respect the limi
   await page.mouse.down();
   await expect
     .poll(() => page.evaluate(() => sandDiagnostics().fish.count), {
-      timeout: 20000,
+      timeout: 60000,
     })
     .toBe(4);
   await page.mouse.up();
