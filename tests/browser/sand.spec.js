@@ -1,5 +1,44 @@
 import { test, expect } from "@playwright/test";
 
+test("pouring water wets the sand, creates visible liquid, and resets cleanly", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.goto("/");
+  await page.waitForFunction(() => window.sandDiagnostics?.().ready);
+  await page.locator("summary").click();
+  await page.locator("#quality").selectOption("low");
+  await page.locator("#wind").fill("0");
+  await page.locator("summary").click();
+  await page.getByRole("button", { name: "Water", exact: true }).click();
+  const before = await page.evaluate(() => ({
+    volume: sandDiagnostics().volume,
+    point: sandTest.projectSand(0, 0),
+  }));
+  await page.mouse.move(before.point.x, before.point.y);
+  await page.mouse.down();
+  await page.waitForTimeout(4000);
+  await page.mouse.up();
+  await expect
+    .poll(() => page.evaluate(() => sandDiagnostics().maxWetness))
+    .toBeGreaterThan(0.75);
+  const wet = await page.evaluate(() => sandDiagnostics());
+  expect(wet.waterVolume).toBeGreaterThan(1);
+  expect(Math.abs(wet.volume - before.volume)).toBeLessThan(0.1);
+  expect(wet.shaderErrors).toBe(0);
+  await page.mouse.wheel(0, -650);
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: ".artifacts/wet-sand.png" });
+  await page.getByRole("button", { name: "Reset sand", exact: true }).click();
+  expect(await page.evaluate(() => sandDiagnostics().waterVolume)).toBe(0);
+  expect(await page.evaluate(() => sandDiagnostics().maxWetness)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 test("real WebGL renders and pointer tools deform the sand field", async ({
   page,
 }) => {

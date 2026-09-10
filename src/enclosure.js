@@ -160,7 +160,7 @@ export function createEnclosure(renderer, scene, uniforms, defines) {
       glassMaterial.transmission = refractive ? 0.98 : 0;
       glassMaterial.transparent = !refractive;
       glassMaterial.opacity = refractive ? 1 : 0.14;
-      glassMaterial.depthWrite = refractive;
+      glassMaterial.depthWrite = false;
       if (changed) glassMaterial.needsUpdate = true;
       renderer.transmissionResolutionScale = level === "high" ? 0.75 : 0.5;
     },

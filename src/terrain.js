@@ -84,6 +84,14 @@ export class SandSimulation {
     this.height = new Float32Array(resolution * resolution);
     this.change = new Float32Array(resolution * resolution);
     this.weights = new Float32Array(resolution * resolution);
+    this.moisture = new Float32Array(resolution * resolution);
+    this.water = new Float32Array(resolution * resolution);
+    this.waterChange = new Float32Array(resolution * resolution);
+    this.moistureChange = new Float32Array(resolution * resolution);
+    this.flowX = new Float32Array(resolution * resolution);
+    this.flowZ = new Float32Array(resolution * resolution);
+    this.waterCapacity = 0.55;
+    this.hasWater = false;
     for (let z = 0; z < resolution; z++)
       for (let x = 0; x < resolution; x++) {
         // Boundary vertices represent half cells; corners represent quarter cells.
@@ -155,7 +163,10 @@ export class SandSimulation {
         coreSum += core * this.weights[j * n + i];
         rimSum += rim * this.weights[j * n + i];
       }
-    if (mode === "smooth") {
+    if (mode === "water") {
+      for (const [i, core] of entries) this.water[i] += amount * core;
+      this.hasWater = true;
+    } else if (mode === "smooth") {
       let correction = 0;
       for (const e of entries) {
         const [i, core] = e;
@@ -205,12 +216,14 @@ export class SandSimulation {
     return true;
   }
   step(dt, wind, direction) {
+    if (this.hasWater) this.stepWater(dt);
     const n = this.resolution,
       h = this.height,
       change = this.change,
       cell = this.cell;
     const [wx, wz] = windVector(direction);
     change.fill(0);
+    this.moistureChange.fill(0);
     const repose = cell * 0.62,
       relaxation = Math.min(dt * 3.5, 0.18),
       transport = Math.max(0, wind - 3) * 0.014 * dt;
@@ -240,10 +253,33 @@ export class SandSimulation {
             relaxation * 0.5,
           );
       }
-    for (let i = 0; i < h.length; i++) h[i] += change[i] / this.weights[i];
+    for (let i = 0; i < h.length; i++) {
+      h[i] += change[i] / this.weights[i];
+      if (this.hasWater) {
+        this.moisture[i] = Math.max(
+          0,
+          this.moisture[i] + this.moistureChange[i] / this.weights[i],
+        );
+        if (this.moisture[i] > this.waterCapacity) {
+          this.water[i] += this.moisture[i] - this.waterCapacity;
+          this.moisture[i] = this.waterCapacity;
+        }
+      }
+    }
     this.version++;
   }
   transferPair(a, b, direction, transport, repose, relaxation) {
+    if (this.hasWater && this.moisture[a] + this.moisture[b] > 0.00001) {
+      const wet = Math.min(
+        1,
+        (this.moisture[a] + this.moisture[b]) / (2 * this.waterCapacity),
+      );
+      const mud = Math.max(0, Math.min(1, (wet - 0.65) / 0.3));
+      // Damp grains gain capillary cohesion; saturation produces a lower-yield slurry.
+      repose *= (1 + Math.sin(wet * Math.PI) * 1.1) * (1 - mud) + 0.28 * mud;
+      relaxation *= 1 - mud * 0.55;
+      transport *= Math.pow(1 - wet, 3);
+    }
     const difference = this.height[a] - this.height[b],
       slump =
         Math.sign(difference) *
@@ -270,9 +306,94 @@ export class SandSimulation {
     );
     this.change[a] -= flux;
     this.change[b] += flux;
+    if (this.hasWater && flux !== 0) {
+      const source = flux > 0 ? a : b;
+      const carried =
+        (flux * this.moisture[source]) /
+        Math.max(0.01, this.height[source] - this.bedrock);
+      this.moistureChange[a] -= carried;
+      this.moistureChange[b] += carried;
+    }
+  }
+  stepWater(dt) {
+    const n = this.resolution,
+      capacity = this.waterCapacity;
+    this.waterChange.fill(0);
+    this.moistureChange.fill(0);
+    for (let i = 0; i < this.water.length; i++) {
+      const absorbed = Math.max(
+        0,
+        Math.min(this.water[i], capacity - this.moisture[i], dt * 0.18),
+      );
+      this.water[i] -= absorbed;
+      this.moisture[i] += absorbed;
+    }
+    const pair = (a, b, velocity) => {
+      const headA = this.height[a] + this.water[a],
+        headB = this.height[b] + this.water[b];
+      const weight = Math.min(this.weights[a], this.weights[b]);
+      // Persistent face flux provides momentum, unlike a viscous height blur.
+      // Hydrostatic reconstruction keeps dry uphill faces from pulling water out
+      // of a resting pool; donor limits keep fast fronts positive and conservative.
+      const faceDepth = Math.max(
+        0,
+        Math.max(headA, headB) - Math.max(this.height[a], this.height[b]),
+      );
+      let rate =
+        velocity[a] * Math.pow(0.985, dt * 30) +
+        ((9.81 * faceDepth * (headA - headB)) / (this.cell * this.cell)) *
+          dt *
+          weight;
+      let flow = rate * dt;
+      flow = Math.min(
+        Math.max(flow, (-this.water[b] * this.weights[b]) / 4),
+        (this.water[a] * this.weights[a]) / 4,
+      );
+      velocity[a] = flow / dt;
+      this.waterChange[a] -= flow;
+      this.waterChange[b] += flow;
+      let seep = (this.moisture[a] - this.moisture[b]) * dt * 0.18 * weight;
+      seep = Math.min(
+        Math.max(seep, (-this.moisture[b] * this.weights[b]) / 4),
+        (this.moisture[a] * this.weights[a]) / 4,
+      );
+      this.moistureChange[a] -= seep;
+      this.moistureChange[b] += seep;
+    };
+    for (let z = 0; z < n; z++)
+      for (let x = 0; x < n; x++) {
+        const i = z * n + x;
+        if (x < n - 1) pair(i, i + 1, this.flowX);
+        if (z < n - 1) pair(i, i + n, this.flowZ);
+      }
+    for (let i = 0; i < this.water.length; i++) {
+      this.water[i] = Math.max(
+        0,
+        this.water[i] + this.waterChange[i] / this.weights[i],
+      );
+      this.moisture[i] = Math.max(
+        0,
+        this.moisture[i] + this.moistureChange[i] / this.weights[i],
+      );
+      if (this.moisture[i] > capacity) {
+        this.water[i] += this.moisture[i] - capacity;
+        this.moisture[i] = capacity;
+      }
+    }
+  }
+  waterVolume() {
+    let sum = 0;
+    for (let i = 0; i < this.water.length; i++)
+      sum += (this.water[i] + this.moisture[i]) * this.weights[i];
+    return sum * this.cell ** 2;
   }
   reset() {
     this.height.set(this.base);
+    this.moisture.fill(0);
+    this.water.fill(0);
+    this.hasWater = false;
+    this.flowX.fill(0);
+    this.flowZ.fill(0);
     this.version++;
   }
   volume() {

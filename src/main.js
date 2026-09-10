@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createEnclosure } from "./enclosure.js";
+import { createWater } from "./water.js";
 import {
   windVector,
   QUALITY,
@@ -97,7 +98,22 @@ function heightTexture(data, n) {
   return t;
 }
 const sandTexture = heightTexture(simulation.height, simulation.resolution);
+const moistureTexture = heightTexture(
+  simulation.moisture,
+  simulation.resolution,
+);
+const waterTexture = heightTexture(simulation.water, simulation.resolution);
+function uploadFields() {
+  sandTexture.needsUpdate = true;
+  moistureTexture.needsUpdate = true;
+  waterTexture.needsUpdate = true;
+}
 const uniforms = {
+  uMoisture: { value: moistureTexture },
+  uWater: { value: waterTexture },
+  uWaterTool: { value: 0 },
+  uElapsed: { value: 0 },
+  uPourPoint: { value: new THREE.Vector3() },
   uSandHeight: { value: sandTexture },
   uSandResolution: { value: simulation.resolution },
   uTime: { value: 0 },
@@ -147,6 +163,7 @@ sky.frustumCulled = false;
 sky.renderOrder = -10;
 scene.add(sky);
 const enclosure = createEnclosure(renderer, scene, uniforms, shaderDefines);
+const waterDisplay = createWater(scene, uniforms, shaderDefines);
 const particleGeometry = new THREE.BufferGeometry(),
   positions = new Float32Array(QUALITY.high.particles * 3),
   seeds = new Float32Array(QUALITY.high.particles * 4);
@@ -248,13 +265,14 @@ syncPause();
 $("reset").addEventListener("click", resetView);
 $("clear").addEventListener("click", () => {
   simulation.reset();
-  sandTexture.needsUpdate = true;
+  uploadFields();
 });
 $("brush").addEventListener("input", (event) => {
   state.radius = Number(event.target.value);
 });
 function setTool(tool) {
   state.tool = tool;
+  uniforms.uWaterTool.value = tool === "water" ? 1 : 0;
   document
     .querySelectorAll("[data-tool]")
     .forEach((button) =>
@@ -266,7 +284,9 @@ function setTool(tool) {
   $("hint").textContent =
     tool === "orbit"
       ? "Drag to orbit · Scroll / pinch to zoom"
-      : "Drag to move sand · Right-drag to orbit · Scroll / pinch to zoom";
+      : tool === "water"
+        ? "Hold to pour water · Right-drag to orbit · Scroll / pinch to zoom"
+        : "Drag to move sand · Right-drag to orbit · Scroll / pinch to zoom";
   if (tool === "orbit") uniforms.uBrush.value.z = -1;
 }
 document
@@ -288,9 +308,11 @@ $("show-ui").addEventListener("click", toggleUI);
 addEventListener("keydown", (event) => {
   if (/INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
   if (event.code === "KeyH") toggleUI();
-  if (/Digit[1-4]/.test(event.code))
+  if (/Digit[1-5]/.test(event.code))
     setTool(
-      ["dig", "pour", "smooth", "orbit"][Number(event.code.slice(-1)) - 1],
+      ["dig", "pour", "smooth", "orbit", "water"][
+        Number(event.code.slice(-1)) - 1
+      ],
     );
   if (event.target.tagName === "BUTTON") return;
   if (event.code === "Space") {
@@ -374,7 +396,7 @@ function finishPointer(event) {
     const hit = pickSand();
     if (hit) {
       simulation.brush(hit.x, hit.z, state.radius, 0.2, state.tool);
-      sandTexture.needsUpdate = true;
+      uploadFields();
     }
   }
   activePointers.delete(event.pointerId);
@@ -406,6 +428,7 @@ function frame(now) {
   const rawDelta = lastTime ? (now - lastTime) / 1000 : 0,
     delta = Math.min(rawDelta, 0.05);
   lastTime = now;
+  uniforms.uElapsed.value += delta;
   controls.update(delta);
   camera.position.y = Math.max(
     camera.position.y,
@@ -431,7 +454,7 @@ function frame(now) {
         state.tool,
       );
     lastStroke = hit.clone();
-    sandTexture.needsUpdate = true;
+    uploadFields();
   } else lastStroke = null;
   if (!state.paused) {
     uniforms.uTime.value += delta;
@@ -446,9 +469,12 @@ function frame(now) {
     while (accumulator >= 1 / 30) {
       simulation.step(1 / 30, state.wind, state.direction);
       accumulator -= 1 / 30;
-      sandTexture.needsUpdate = true;
+      uploadFields();
     }
   }
+  waterDisplay.mesh.visible = simulation.hasWater;
+  waterDisplay.stream.visible = painting && !!hit && state.tool === "water";
+  if (hit) uniforms.uPourPoint.value.copy(hit);
   renderer.render(scene, camera);
   if (!started) {
     started = true;
@@ -495,7 +521,7 @@ renderer.domElement.addEventListener("webglcontextlost", (event) => {
 renderer.domElement.addEventListener("webglcontextrestored", () => {
   contextLost = false;
   enclosure.restoreEnvironment();
-  sandTexture.needsUpdate = true;
+  uploadFields();
   $("error").hidden = true;
   resume();
 });
@@ -515,6 +541,10 @@ window.sandDiagnostics = () => ({
   floatLinear,
   simulationVersion: simulation.version,
   volume: simulation.volume(),
+  waterVolume: simulation.waterVolume(),
+  maxWetness: simulation.hasWater
+    ? Math.max(...simulation.moisture) / simulation.waterCapacity
+    : 0,
   centerHeight: simulation.sample(0, 0),
   brush: uniforms.uBrush.value.toArray(),
 });

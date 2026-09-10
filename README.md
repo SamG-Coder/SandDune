@@ -9,11 +9,12 @@ An interactive sand surface inside an open glass box. Dig trenches, push sand in
 - **Dig:** drag to displace sand into the edges of a trench. Removed volume is deposited in the surrounding rim.
 - **Pour:** hold or drag to add sand. High piles avalanche down their sides.
 - **Smooth:** redistribute nearby sand without changing its total volume.
+- **Water:** hold to pour. Water runs downhill and soaks into the sand; continued pouring leaves pools above the saturated material.
 - **Orbit:** drag to move the camera. Right-drag also orbits while a sand tool is selected.
 - Scroll or pinch to zoom. Touch-drag sculpts; two fingers rotate and zoom.
 - **Size** changes the brush radius. **Reset sand** restores the initial surface; **Reset view** restores the camera.
 - Open **Wind & light** to adjust speed, direction, sunlight, rendering quality, or pause.
-- Keys **1–4** select tools, **Space** pauses/resumes physics, **R** resets the view, and **H** hides/restores controls. Form fields retain their normal keyboard behaviour.
+- Keys **1–4** select the original tools, **5** selects Water, **Space** pauses/resumes physics, **R** resets the view, and **H** hides/restores controls. Reset sand also clears water and moisture. Form fields retain their normal keyboard behaviour.
 - Reduced-motion preferences start the simulation paused. You can still sculpt and resume explicitly.
 
 ## Material behaviour
@@ -28,17 +29,23 @@ The active 160 × 160 world-unit patch stores **37,249 height cells**. A fixed 3
 
 **Rendering.** Irregular, individually placed asymmetric drifts replace a periodic dune pattern. The central height field is uploaded as a small float texture only when it changes. The terrain vertex shader displaces a dense central mesh; the fragment shader shades the resulting slopes and subtle grain detail. The sand mesh ends exactly at the inner glass faces. Live cross-section meshes show the depth of the sand through the walls, and a solid rounded base sits underneath. There is no surrounding desert. Windborne visual grains use a separate GPU-animated points batch. Those grains visualize transport already handled by the height-field solver, rather than adding a second source of material.
 
-## Glass enclosure
+## Water and wet sand
+
+Free surface water and absorbed moisture are separate fields. A conservative pipe-flow approximation stores momentum across neighbouring cells, accelerates water under gravity, and limits outgoing flux to the available volume. Water spreads before it absorbs, pools in depressions, and remains inside the glass walls. Moisture moves with displaced sediment. Damp sand gains cohesion; saturation lowers the yield slope for a muddy slump and suppresses wind transport. These are artistic material responses rather than calibrated soil mechanics.
+
+The liquid uses a separate physical transmission material with water's 1.333 refractive index, depth-dependent optical thickness, subtle animated ripples, and studio reflections. The darker wet sediment is beneath the clear liquid. Both glass and water use screen-space transmission, so nested transparent surfaces have the usual raster-rendering limitations. A GPU points batch shows the pouring stream. Water fields and flow buffers are allocated once, and water updates are skipped until water is introduced.
+
+## Glass construction
 
 Four glass slabs have physical thickness, an index of refraction of 1.5, subtle absorption, reflections from a generated studio environment, and narrow polished edges. Balanced and High use physical transmission/refraction. Low uses simpler reflective transparency to avoid the extra refraction render pass. The starting camera fits the whole container and can orbit or zoom inside. The brush remains anchored while held so digging deeper does not slide the cursor away from a wall.
 
 ## Performance
 
-| Quality | Mesh segments per side | Wind particles | Maximum pixel ratio | Terrain shadows |
-| --- | ---: | ---: | ---: | --- |
-| Low | 192 | 1,600 | 1.00 | Off |
-| Balanced | 256 | 4,200 | 1.30 | On |
-| High | 320 | 8,000 | 1.65 | On |
+| Quality  | Mesh segments per side | Wind particles | Maximum pixel ratio | Terrain shadows |
+| -------- | ---------------------: | -------------: | ------------------: | --------------- |
+| Low      |                    192 |          1,600 |                1.00 | Off             |
+| Balanced |                    256 |          4,200 |                1.30 | On              |
+| High     |                    320 |          8,000 |                1.65 | On              |
 
 - The glass box adds wall, base, floor, cross-section, and edge draws. Balanced currently renders 16 draw calls including its refraction pass; Low uses simpler glass. The brush outline is shaded directly on the terrain.
 - Hardware float-texture filtering is used when available, with a manual bilinear fallback.
@@ -52,7 +59,7 @@ The on-screen FPS counter measures the actual browser. Graphics performance depe
 
 ## Limits
 
-This is a real-time height-field approximation of dry sand, not a discrete-element simulation of every grain. It models persistent deformation, mass transfer, wind transport, finite depth, and slope collapse. It does not model overhangs, buried objects, cohesion from moisture, or grain-level friction and collision. Physics fills the glass box. Sand cannot pass through the side walls. A physically calibrated sediment model or arbitrary 3D granular volumes would require a different solver and a larger compute budget.
+This is a real-time height-field approximation, not a discrete-element simulation of every grain. It models persistent deformation, mass transfer, wind transport, finite depth, slope collapse, and simplified moisture cohesion. Water is a shallow surface-flow approximation, without full 3D splashes, overturning waves, evaporation, or sediment suspension. It does not model overhangs, buried objects, or grain-level friction and collision. Physics fills the glass box. Sand cannot pass through the side walls. A physically calibrated sediment model or arbitrary 3D granular volumes would require a different solver and a larger compute budget.
 
 ## Run and test
 
