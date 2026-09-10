@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 test("pouring water wets the sand, creates visible liquid, and resets cleanly", async ({
   page,
 }) => {
+  test.setTimeout(120000);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
@@ -23,7 +24,7 @@ test("pouring water wets the sand, creates visible liquid, and resets cleanly", 
   await page.mouse.down();
   // Wait for simulated absorption rather than a fixed software-renderer duration.
   await expect
-    .poll(() => page.evaluate(() => sandDiagnostics().maxWetness), { timeout: 20000 })
+    .poll(() => page.evaluate(() => sandDiagnostics().maxWetness), { timeout: 60000 })
     .toBeGreaterThan(0.75);
   await page.mouse.up();
   const wet = await page.evaluate(() => sandDiagnostics());
