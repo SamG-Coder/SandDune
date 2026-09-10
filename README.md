@@ -88,7 +88,7 @@ The unit suite checks mass conservation, repose settling, stable rest, downwind 
 
 ## Publishing status
 
-The user deleted the public repository. This checkout has no remote and must not be pushed or published without renewed authorization. The existing workflow remains available for a future authorized repository; no deployment credentials are stored in the project. All attribution uses SamG-Coder.
+The public repository is https://github.com/SamG-Coder/SandDune. GitHub Actions installs dependencies, runs the unit tests, builds the app, and deploys GitHub Pages. Browser tests run locally with `npm run test:browser`; they are not part of the GitHub workflow. No deployment credentials are stored in the project. All attribution uses SamG-Coder.
 
 ## References
 
