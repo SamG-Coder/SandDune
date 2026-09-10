@@ -21,11 +21,11 @@ test("pouring water wets the sand, creates visible liquid, and resets cleanly", 
   }));
   await page.mouse.move(before.point.x, before.point.y);
   await page.mouse.down();
-  await page.waitForTimeout(4000);
-  await page.mouse.up();
+  // Wait for simulated absorption rather than a fixed software-renderer duration.
   await expect
-    .poll(() => page.evaluate(() => sandDiagnostics().maxWetness))
+    .poll(() => page.evaluate(() => sandDiagnostics().maxWetness), { timeout: 20000 })
     .toBeGreaterThan(0.75);
+  await page.mouse.up();
   const wet = await page.evaluate(() => sandDiagnostics());
   expect(wet.waterVolume).toBeGreaterThan(1);
   expect(Math.abs(wet.volume - before.volume)).toBeLessThan(0.1);

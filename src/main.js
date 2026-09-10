@@ -216,6 +216,7 @@ function applyQuality(level) {
   if (level === activeQuality) return;
   activeQuality = level;
   makeTerrain(QUALITY[level].segments);
+  waterDisplay.setResolution(QUALITY[level].segments);
   particleGeometry.setDrawRange(0, QUALITY[level].particles);
   uniforms.uShadows.value = QUALITY[level].shadows;
   enclosure.setQuality(level);
