@@ -2,7 +2,7 @@
 
 A real-time, wind-shaped desert built with Three.js and GLSL. Sculpted dune crests, moving sand ripples, fine airborne grains, and soft atmospheric light, with a small interface for exploring the conditions.
 
-**[Explore the desert](https://SamG-Coder.github.io/SandDune/)** · **[Build and deployment](https://github.com/SamG-Coder/SandDune/actions)**
+**[Explore the desert](https://samg-coder.github.io/SandDune/)** · **[Build and deployment](https://github.com/SamG-Coder/SandDune/actions)**
 
 ## Run locally
 
