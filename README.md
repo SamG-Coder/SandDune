@@ -1,8 +1,12 @@
-# Sand
+# SandDune
 
-Local Three.js sandbox. Public publishing is disabled; the repository remote has been removed.
+[**Play the live demo**](https://samg-coder.github.io/SandDune/) · [Watch the showcase](https://x.com/SamGCoder/status/2098153627601043486)
 
 An interactive sand surface inside an open glass box. Dig trenches, push sand into their rims, pour piles, and watch gravity settle unstable slopes while wind transports and redeposits material. The interface consists of a compact tool strip and optional wind/light controls.
+
+![Goldfish swimming in a pool surrounded by sand in the SandDune Three.js sandbox](docs/images/sanddune-preview.jpg)
+
+*Screenshot from a staged sandbox scene, captured directly from the demo.*
 
 ## Use
 
