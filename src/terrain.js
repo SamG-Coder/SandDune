@@ -58,9 +58,9 @@ export function terrainHeight(x, z) {
   return h;
 }
 export const QUALITY = {
-  low: { segments: 256, particles: 1600, pixelRatio: 1, shadows: 0 },
-  medium: { segments: 352, particles: 4200, pixelRatio: 1.3, shadows: 1 },
-  high: { segments: 448, particles: 8000, pixelRatio: 1.65, shadows: 1 },
+  low: { segments: 192, particles: 1600, pixelRatio: 1, shadows: 0 },
+  medium: { segments: 256, particles: 4200, pixelRatio: 1.3, shadows: 1 },
+  high: { segments: 320, particles: 8000, pixelRatio: 1.65, shadows: 1 },
 };
 export function chooseAdaptiveQuality(fps, current) {
   if (fps < 36) return current === "high" ? "medium" : "low";
@@ -83,12 +83,18 @@ export class SandSimulation {
     this.base = new Float32Array(resolution * resolution);
     this.height = new Float32Array(resolution * resolution);
     this.change = new Float32Array(resolution * resolution);
+    this.weights = new Float32Array(resolution * resolution);
     for (let z = 0; z < resolution; z++)
-      for (let x = 0; x < resolution; x++)
+      for (let x = 0; x < resolution; x++) {
+        // Boundary vertices represent half cells; corners represent quarter cells.
+        this.weights[z * resolution + x] =
+          (x === 0 || x === resolution - 1 ? 0.5 : 1) *
+          (z === 0 || z === resolution - 1 ? 0.5 : 1);
         this.base[z * resolution + x] = heightAt(
           x * this.cell - size / 2,
           z * this.cell - size / 2,
         );
+      }
     this.height.set(this.base);
     this.version = 0;
     this.bedrock = -8;
@@ -97,10 +103,9 @@ export class SandSimulation {
     const n = this.resolution,
       gx = (x + this.size / 2) / this.cell,
       gz = (z + this.size / 2) / this.cell;
-    if (gx < 0 || gz < 0 || gx >= n - 1 || gz >= n - 1)
-      return terrainHeight(x, z);
-    const ix = Math.floor(gx),
-      iz = Math.floor(gz),
+    if (gx < 0 || gz < 0 || gx > n - 1 || gz > n - 1) return this.bedrock;
+    const ix = Math.min(n - 2, Math.floor(gx)),
+      iz = Math.min(n - 2, Math.floor(gz)),
       fx = gx - ix,
       fz = gz - iz,
       i = iz * n + ix,
@@ -119,21 +124,18 @@ export class SandSimulation {
       amount <= 0
     )
       return false;
-    if (
-      Math.abs(x) + radius * 1.8 > this.size / 2 - this.cell * 3 ||
-      Math.abs(z) + radius * 1.8 > this.size / 2 - this.cell * 3
-    )
+    if (Math.abs(x) > this.size / 2 || Math.abs(z) > this.size / 2)
       return false;
     const n = this.resolution,
       cell = this.cell,
-      minX = Math.max(2, Math.floor((x - radius * 1.8 + this.size / 2) / cell)),
+      minX = Math.max(0, Math.floor((x - radius * 1.8 + this.size / 2) / cell)),
       maxX = Math.min(
-        n - 3,
+        n - 1,
         Math.ceil((x + radius * 1.8 + this.size / 2) / cell),
       ),
-      minZ = Math.max(2, Math.floor((z - radius * 1.8 + this.size / 2) / cell)),
+      minZ = Math.max(0, Math.floor((z - radius * 1.8 + this.size / 2) / cell)),
       maxZ = Math.min(
-        n - 3,
+        n - 1,
         Math.ceil((z + radius * 1.8 + this.size / 2) / cell),
       );
     const entries = [];
@@ -150,21 +152,36 @@ export class SandSimulation {
         const core = Math.max(0, 1 - r * r) ** 2,
           rim = r > 0.85 ? Math.max(0, 1 - ((r - 1.23) / 0.55) ** 2) ** 2 : 0;
         entries.push([j * n + i, core, rim]);
-        coreSum += core;
-        rimSum += rim;
+        coreSum += core * this.weights[j * n + i];
+        rimSum += rim * this.weights[j * n + i];
       }
     if (mode === "smooth") {
       let correction = 0;
       for (const e of entries) {
-        const [i, core] = e,
-          average =
-            (this.height[i - 1] +
-              this.height[i + 1] +
-              this.height[i - n] +
-              this.height[i + n]) *
-            0.25;
+        const [i, core] = e;
+        const x = i % n,
+          z = Math.floor(i / n);
+        let sum = 0,
+          count = 0;
+        if (x > 0) {
+          sum += this.height[i - 1];
+          count++;
+        }
+        if (x < n - 1) {
+          sum += this.height[i + 1];
+          count++;
+        }
+        if (z > 0) {
+          sum += this.height[i - n];
+          count++;
+        }
+        if (z < n - 1) {
+          sum += this.height[i + n];
+          count++;
+        }
+        const average = sum / count;
         e[3] = (average - this.height[i]) * core * Math.min(amount * 3, 0.45);
-        correction += e[3];
+        correction += e[3] * this.weights[i];
       }
       for (const [i, core, , change] of entries)
         this.height[i] +=
@@ -179,7 +196,7 @@ export class SandSimulation {
           Math.max(0, this.height[i] - this.bedrock),
         );
         this.height[i] -= removed;
-        displaced += removed;
+        displaced += removed * this.weights[i];
       }
       for (const [i, , rim] of entries)
         this.height[i] += (displaced * rim) / Math.max(rimSum, 1e-6);
@@ -197,14 +214,14 @@ export class SandSimulation {
     const repose = cell * 0.62,
       relaxation = Math.min(dt * 3.5, 0.18),
       transport = Math.max(0, wind - 3) * 0.014 * dt;
-    for (let z = 2; z < n - 2; z++)
-      for (let x = 2; x < n - 2; x++) {
+    for (let z = 0; z < n; z++)
+      for (let x = 0; x < n; x++) {
         const i = z * n + x;
-        if (x < n - 3)
+        if (x < n - 1)
           this.transferPair(i, i + 1, wx, transport, repose, relaxation);
-        if (z < n - 3)
+        if (z < n - 1)
           this.transferPair(i, i + n, wz, transport, repose, relaxation);
-        if (z < n - 3 && x < n - 3)
+        if (z < n - 1 && x < n - 1)
           this.transferPair(
             i,
             i + n + 1,
@@ -213,7 +230,7 @@ export class SandSimulation {
             repose * Math.SQRT2,
             relaxation * 0.5,
           );
-        if (z < n - 3 && x > 2)
+        if (z < n - 1 && x > 0)
           this.transferPair(
             i,
             i + n - 1,
@@ -223,7 +240,7 @@ export class SandSimulation {
             relaxation * 0.5,
           );
       }
-    for (let i = 0; i < h.length; i++) h[i] += change[i];
+    for (let i = 0; i < h.length; i++) h[i] += change[i] / this.weights[i];
     this.version++;
   }
   transferPair(a, b, direction, transport, repose, relaxation) {
@@ -243,9 +260,13 @@ export class SandSimulation {
         0.24 +
       difference * transport * 0.48 +
       slump;
+    flux *= Math.min(this.weights[a], this.weights[b]);
     flux = Math.min(
-      Math.max(flux, -Math.max(0, this.height[b] - this.bedrock) / 8),
-      Math.max(0, this.height[a] - this.bedrock) / 8,
+      Math.max(
+        flux,
+        (-Math.max(0, this.height[b] - this.bedrock) * this.weights[b]) / 8,
+      ),
+      (Math.max(0, this.height[a] - this.bedrock) * this.weights[a]) / 8,
     );
     this.change[a] -= flux;
     this.change[b] += flux;
@@ -256,7 +277,8 @@ export class SandSimulation {
   }
   volume() {
     let sum = 0;
-    for (const h of this.height) sum += h;
+    for (let i = 0; i < this.height.length; i++)
+      sum += (this.height[i] - this.bedrock) * this.weights[i];
     return sum * this.cell ** 2;
   }
 }

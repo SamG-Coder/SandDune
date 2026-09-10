@@ -1,12 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createEnclosure } from "./enclosure.js";
 import {
-  terrainHeight,
   windVector,
   QUALITY,
   chooseAdaptiveQuality,
   SandSimulation,
-  WORLD_SIZE,
 } from "./terrain.js";
 import {
   terrainVertex,
@@ -70,7 +69,7 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.enablePan = false;
 controls.minDistance = 10;
-controls.maxDistance = 155;
+controls.maxDistance = 850;
 controls.minPolarAngle = 0.2;
 controls.maxPolarAngle = Math.PI * 0.48;
 controls.mouseButtons = {
@@ -81,8 +80,9 @@ controls.mouseButtons = {
 controls.touches.ONE = null;
 controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE;
 function resetView() {
-  camera.position.set(35, 24, 47);
-  controls.target.set(-7, 1, -16);
+  const fit = Math.max(1, 1.15 / (innerWidth / innerHeight));
+  camera.position.set(160 * fit, 6 + 134 * fit, 195 * fit);
+  controls.target.set(0, 6, 0);
   controls.update();
 }
 resetView();
@@ -96,16 +96,8 @@ function heightTexture(data, n) {
   t.needsUpdate = true;
   return t;
 }
-const baseData = new Float32Array(513 * 513);
-for (let z = 0; z < 513; z++)
-  for (let x = 0; x < 513; x++)
-    baseData[z * 513 + x] = terrainHeight(
-      (x / 512) * WORLD_SIZE - WORLD_SIZE / 2,
-      (z / 512) * WORLD_SIZE - WORLD_SIZE / 2,
-    );
 const sandTexture = heightTexture(simulation.height, simulation.resolution);
 const uniforms = {
-  uBaseHeight: { value: heightTexture(baseData, 513) },
   uSandHeight: { value: sandTexture },
   uSandResolution: { value: simulation.resolution },
   uTime: { value: 0 },
@@ -128,24 +120,8 @@ const terrainMaterial = new THREE.ShaderMaterial({
 });
 let terrain;
 function makeTerrain(segments) {
-  const geometry = new THREE.PlaneGeometry(2, 2, segments, segments);
+  const geometry = new THREE.PlaneGeometry(160, 160, segments, segments);
   geometry.rotateX(-Math.PI / 2);
-  const positions = geometry.attributes.position;
-  // Dense, nearly uniform central region; broad smooth landforms outside the sandbox.
-  const spread = (v) => {
-    const a = Math.abs(v);
-    return (
-      Math.sign(v) *
-      (a < 0.78 ? (a / 0.78) * 80 : 80 + Math.pow((a - 0.78) / 0.22, 1.6) * 620)
-    );
-  };
-  for (let i = 0; i < positions.count; i++)
-    positions.setXYZ(
-      i,
-      spread(positions.getX(i)),
-      0,
-      spread(positions.getZ(i)),
-    );
   if (terrain) {
     terrain.geometry.dispose();
     terrain.geometry = geometry;
@@ -170,6 +146,7 @@ const sky = new THREE.Mesh(
 sky.frustumCulled = false;
 sky.renderOrder = -10;
 scene.add(sky);
+const enclosure = createEnclosure(renderer, scene, uniforms, shaderDefines);
 const particleGeometry = new THREE.BufferGeometry(),
   positions = new Float32Array(QUALITY.high.particles * 3),
   seeds = new Float32Array(QUALITY.high.particles * 4);
@@ -223,6 +200,7 @@ function applyQuality(level) {
   makeTerrain(QUALITY[level].segments);
   particleGeometry.setDrawRange(0, QUALITY[level].particles);
   uniforms.uShadows.value = QUALITY[level].shadows;
+  enclosure.setQuality(level);
   resize();
 }
 applyQuality(innerWidth < 760 ? "low" : "medium");
@@ -239,6 +217,7 @@ function syncAtmosphere() {
       Math.cos(elevation) * 0.41,
     )
     .normalize();
+  enclosure.updateSun(uniforms.uSun.value);
   uniforms.uFog.value.set(state.sun > 40 ? "#c6c5b9" : "#c6b6a0");
   for (const name of ["wind", "direction", "sun"]) {
     $(name).value = state[name];
@@ -325,6 +304,7 @@ const pointer = new THREE.Vector2(),
   raycaster = new THREE.Raycaster();
 let pointerInside = false,
   painting = false,
+  strokePlaneY = null,
   lastStroke = null,
   pointerCount = 0;
 const activePointers = new Set();
@@ -339,8 +319,19 @@ function readPointer(event) {
 function pickSand() {
   raycaster.setFromCamera(pointer, camera);
   const ray = raycaster.ray;
+  // Keep a held brush anchored as the surface moves underneath it. Recasting
+  // against each deeper trench would slide the brush away from the glass.
+  if (painting && strokePlaneY !== null && Math.abs(ray.direction.y) > 1e-6) {
+    const distance = (strokePlaneY - ray.origin.y) / ray.direction.y;
+    if (distance < 0) return null;
+    const hit = ray.at(distance, new THREE.Vector3());
+    if (Math.max(Math.abs(hit.x), Math.abs(hit.z)) > simulation.size / 2)
+      return null;
+    hit.y = simulation.sample(hit.x, hit.z);
+    return hit;
+  }
   let previous = 0.2;
-  for (let t = 1; t < 400; t += Math.max(0.6, t * 0.018)) {
+  for (let t = 1; t < 1200; t += Math.max(0.6, t * 0.012)) {
     const p = ray.at(t, new THREE.Vector3());
     if (p.y < simulation.sample(p.x, p.z)) {
       let lo = previous,
@@ -352,8 +343,7 @@ function pickSand() {
         else lo = mid;
       }
       const hit = ray.at((lo + hi) / 2, new THREE.Vector3());
-      return Math.max(Math.abs(hit.x), Math.abs(hit.z)) + state.radius * 1.8 <
-        76
+      return Math.max(Math.abs(hit.x), Math.abs(hit.z)) <= simulation.size / 2
         ? hit
         : null;
     }
@@ -371,7 +361,9 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     return;
   }
   if (event.button === 0 && state.tool !== "orbit") {
-    painting = true;
+    const hit = pickSand();
+    strokePlaneY = hit?.y ?? null;
+    painting = !!hit;
     lastStroke = null;
     renderer.domElement.setPointerCapture(event.pointerId);
   }
@@ -388,6 +380,7 @@ function finishPointer(event) {
   activePointers.delete(event.pointerId);
   pointerCount = activePointers.size;
   painting = false;
+  strokePlaneY = null;
   lastStroke = null;
 }
 renderer.domElement.addEventListener("pointerup", finishPointer);
@@ -501,11 +494,14 @@ renderer.domElement.addEventListener("webglcontextlost", (event) => {
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => {
   contextLost = false;
+  enclosure.restoreEnvironment();
   sandTexture.needsUpdate = true;
   $("error").hidden = true;
   resume();
 });
 window.sandDiagnostics = () => ({
+  ready: started,
+  glassWalls: enclosure.walls.length,
   quality: activeQuality,
   drawCalls: renderer.info.render.calls,
   triangles: renderer.info.render.triangles,
@@ -524,5 +520,22 @@ window.sandDiagnostics = () => ({
 });
 // Development-only inspection for tests; production exposes read-only metrics above.
 if (import.meta.env.DEV)
-  window.sandTest = { simulation, state, setTool, camera, pickSand };
+  window.sandTest = {
+    simulation,
+    state,
+    setTool,
+    camera,
+    pickSand,
+    projectSand(x, z) {
+      const projected = new THREE.Vector3(
+        x,
+        simulation.sample(x, z),
+        z,
+      ).project(camera);
+      return {
+        x: ((projected.x + 1) / 2) * innerWidth,
+        y: ((1 - projected.y) / 2) * innerHeight,
+      };
+    },
+  };
 resume();

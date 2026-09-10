@@ -104,10 +104,51 @@ test("smoothing conserves volume and reset restores the original field", () => {
 test("out-of-bounds and invalid brushes leave the field untouched", () => {
   const s = flat(),
     copy = s.height.slice();
-  assert.equal(s.brush(16, 0, 3, 1), false);
+  assert.equal(s.brush(16.1, 0, 3, 1), false);
   assert.equal(s.brush(NaN, 0, 3, 1), false);
   assert.equal(s.brush(0, 0, 0, 1), false);
   assert.deepEqual(s.height, copy);
+});
+
+test("sand can be dug away directly against every wall and corner without losing volume", () => {
+  for (const [x, z] of [
+    [16, 0],
+    [-16, 0],
+    [0, 16],
+    [0, -16],
+    [16, 16],
+    [-16, -16],
+  ]) {
+    const s = flat(),
+      volume = s.volume();
+    assert.equal(s.brush(x, z, 3, 2, "dig"), true);
+    assert.ok(s.sample(x, z) < -1.9);
+    assert.ok(Math.abs(s.volume() - volume) < 0.001);
+    s.brush(x, z, 3, 0.2, "smooth");
+    assert.ok(s.height.every(Number.isFinite));
+    assert.ok(Math.abs(s.volume() - volume) < 0.001);
+  }
+});
+
+test("a pile at the wall slumps inward instead of leaving an immovable rim", () => {
+  const s = flat();
+  s.brush(16, 0, 2.5, 10, "pour");
+  const volume = s.volume(),
+    peak = s.sample(16, 0),
+    interior = s.sample(12, 0);
+  for (let i = 0; i < 900; i++) s.step(1 / 30, 0, 0);
+  assert.ok(s.sample(16, 0) < peak * 0.7);
+  assert.ok(s.sample(12, 0) > interior + 0.1);
+  assert.ok(Math.abs(s.volume() - volume) < 0.003);
+});
+
+test("edge volume accounts for half cells and quarter corners", () => {
+  const s = flat();
+  assert.equal(s.volume(), 32 * 32 * 8);
+  assert.equal(s.sample(16, 0), 0);
+  assert.equal(s.sample(0, 16), 0);
+  assert.equal(s.sample(16, 16), 0);
+  assert.equal(s.sample(16.01, 0), s.bedrock);
 });
 test("height sampling agrees with grid vertices and bilinear cell centres", () => {
   const s = new SandSimulation(33, 32, (x, z) => x * 0.1 + z * 0.05);

@@ -4,15 +4,16 @@ test("real WebGL renders and pointer tools deform the sand field", async ({
   page,
 }) => {
   const { width, height } = page.viewportSize();
-  const sx = (x) => x / 1365 * width;
-  const sy = (y) => y / 900 * height;
+  const sx = (x) => (x / 1365) * width;
+  const sy = (y) => (y / 900) * height;
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
   });
   await page.goto("/");
-  await page.waitForFunction(() => window.sandDiagnostics?.().drawCalls === 3);
+  await page.waitForFunction(() => window.sandDiagnostics?.().ready);
+  expect(await page.evaluate(() => sandDiagnostics().glassWalls)).toBe(4);
   await expect(page.locator("#loading")).toBeHidden();
   expect(await page.evaluate(() => sandDiagnostics().shaderErrors)).toBe(0);
   await page.locator("summary").click();
@@ -93,7 +94,7 @@ test("mobile controls, shader quality changes, and reduced motion work", async (
   });
   const page = await context.newPage();
   await page.goto("/");
-  await page.waitForFunction(() => window.sandDiagnostics?.().drawCalls === 3);
+  await page.waitForFunction(() => window.sandDiagnostics?.().ready);
   expect(await page.evaluate(() => sandDiagnostics().paused)).toBe(true);
   await expect(
     page.getByRole("button", { name: "Dig", exact: true }),
@@ -110,4 +111,35 @@ test("mobile controls, shader quality changes, and reduced motion work", async (
   await page.screenshot({ path: ".artifacts/sand-mobile.png" });
   expect(await page.evaluate(() => sandDiagnostics().shaderErrors)).toBe(0);
   await context.close();
+});
+
+test("the brush reaches the glass wall and moves the boundary sand", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => window.sandDiagnostics?.().ready);
+  await page.locator("summary").click();
+  await page.locator("#quality").selectOption("low");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.locator("summary").click();
+  const before = await page.evaluate(() => ({
+    point: sandTest.projectSand(0, 78.8),
+    height: sandTest.simulation.sample(0, 80),
+    volume: sandDiagnostics().volume,
+  }));
+  await page.mouse.move(before.point.x, before.point.y);
+  await expect
+    .poll(() => page.evaluate(() => sandDiagnostics().brush[2]))
+    .toBeGreaterThan(0);
+  await page.mouse.down();
+  await page.waitForTimeout(1500);
+  await page.mouse.up();
+  const after = await page.evaluate(() => ({
+    height: sandTest.simulation.sample(0, 80),
+    volume: sandDiagnostics().volume,
+  }));
+  expect(after.height).toBeLessThan(before.height - 0.5);
+  expect(Math.abs(after.volume - before.volume)).toBeLessThan(0.05);
+  expect(await page.evaluate(() => sandDiagnostics().shaderErrors)).toBe(0);
+  await page.screenshot({ path: ".artifacts/glass-edge-dig.png" });
 });
