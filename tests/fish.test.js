@@ -53,8 +53,7 @@ test("fish stop swimming when water disappears and resume only when it is deep a
   s.water.fill(0);
   advanceFish(s, f, 0.1, 2);
   assert.equal(f.swimming, false);
-  assert.equal(f.x, x);
-  assert.equal(f.z, z);
+  assert.ok(Math.hypot(f.x - x, f.z - z) < 0.3);
   s.water.fill(0.2);
   advanceFish(s, f, 0.1, 3);
   assert.equal(f.swimming, false);
@@ -80,8 +79,7 @@ test("drops fall continuously, land on sand and resume swimming after flooding",
   for (let i = 0; i < 60; i++) advanceFish(s, f, 1 / 30, i / 30);
   assert.equal(f.mode, "stranded");
   assert.equal(f.swimming, false);
-  assert.equal(f.x, 0);
-  assert.equal(f.z, 0);
+  assert.ok(Math.hypot(f.x, f.z) < 2);
   s.water.fill(4);
   advanceFish(s, f, 0.1, 3);
   assert.equal(f.mode, "swimming");
@@ -103,4 +101,65 @@ test("individual body size controls required water clearance", () => {
   s.water.fill(1.8);
   assert.ok(fishHabitat(s, 0, 0, 0.7));
   assert.equal(fishHabitat(s, 0, 0, 1.15), null);
+});
+
+test("stranded fish seek nearby water rather than stay on land", () => {
+  const s = pool();
+  for (let z = 0; z < 81; z++)
+    for (let x = 0; x < 81; x++) s.water[z * 81 + x] = x >= 40 ? 4 : 0;
+  const f = createFishState(pool(), -2, 0);
+  f.heading = 0;
+  for (let i = 0; i < 420; i++) advanceFish(s, f, 1 / 30, i / 30);
+  assert.notEqual(f.mode, "dead");
+  assert.ok(f.x > 0);
+  assert.ok(f.airTime < 15);
+});
+test("15 seconds without water kills a fish; death fades irreversibly", () => {
+  const s = pool(),
+    f = createFishState(s, 0, 0);
+  s.water.fill(0);
+  for (let i = 0; i < 449; i++) advanceFish(s, f, 1 / 30, i / 30);
+  assert.notEqual(f.mode, "dead");
+  advanceFish(s, f, 1 / 30, 15);
+  assert.equal(f.mode, "dead");
+  s.water.fill(4);
+  advanceFish(s, f, 0.1, 16);
+  assert.equal(f.mode, "dead");
+  assert.ok(f.fade < 1);
+  for (let i = 0; i < 90; i++) advanceFish(s, f, 1 / 30, 16 + i / 30);
+  assert.equal(f.fade, 0);
+});
+test("shallow water permits paddling and gill coverage resets the survival timer", () => {
+  const s = pool(),
+    f = createFishState(s, 0, 0);
+  s.water.fill(0.1);
+  for (let i = 0; i < 300; i++) advanceFish(s, f, 1 / 30, i / 30);
+  assert.ok(f.airTime > 9);
+  s.water.fill(0.8);
+  const x = f.x,
+    z = f.z;
+  for (let i = 0; i < 300; i++) advanceFish(s, f, 1 / 30, 10 + i / 30);
+  assert.equal(f.mode, "shallow");
+  assert.equal(f.airTime, 0);
+  assert.ok(Math.hypot(f.x - x, f.z - z) > 0.5);
+});
+test("cruising has forward progress, social response and bottom foraging bouts", () => {
+  const s = new SandSimulation(101, 100, () => 0);
+  s.water.fill(5);
+  const a = createFishState(s, 0, 0),
+    b = createFishState(s, 0, 5, 1);
+  a.heading = 0;
+  b.heading = 0;
+  let foraged = false,
+    shoaled = false;
+  for (let i = 0; i < 900; i++) {
+    advanceFish(s, a, 1 / 30, i / 30, [a, b]);
+    advanceFish(s, b, 1 / 30, i / 30, [a, b]);
+    foraged ||= a.behavior === "foraging";
+    shoaled ||= a.social === "shoaling";
+    if (i === 149) assert.ok(Math.hypot(a.x, a.z) > 3);
+  }
+  assert.ok(foraged);
+  assert.ok(shoaled);
+  assert.ok(fishHabitat(s, a.x, a.z));
 });

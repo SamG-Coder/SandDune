@@ -5,7 +5,8 @@ export function createFishSystem(scene, simulation) {
   let model = null,
     loadError = false,
     time = 0,
-    limit = 24;
+    limit = 24,
+    nextId = 0;
   const orientation = new THREE.Quaternion(),
     euler = new THREE.Euler(0, 0, 0, "YXZ");
   const fish = [];
@@ -54,7 +55,7 @@ export function createFishSystem(scene, simulation) {
           : "Goldfish is loading…";
       if (fish.length >= limit)
         return "Fish limit reached · Increase the limit or reset sand";
-      const id = fish.length;
+      const id = nextId++;
       const size = 0.7 + ((id * 7) % 10) * 0.05;
       const state = createDropState(simulation, x, z, id, size);
       const object = model.clone(true);
@@ -115,25 +116,46 @@ export function createFishSystem(scene, simulation) {
       for (const f of fish) {
         advanceFish(simulation, f.state, dt, time, peers);
         f.object.position.set(f.state.x, f.state.y, f.state.z);
-        const stranded = f.state.mode === "stranded";
+        const dead = f.state.mode === "dead";
+        const stranded = f.state.mode === "stranded" || dead;
+        if (dead)
+          for (const material of f.materials) {
+            if (!material.alphaHash) {
+              material.alphaHash = true;
+              material.needsUpdate = true;
+            }
+            material.opacity = f.state.fade;
+          }
         const falling = f.state.mode === "falling";
-        const flop = stranded
-          ? Math.pow(Math.max(0, Math.sin(time * 2 + f.state.phase)), 12)
-          : 0;
+        const flop = !dead && stranded ? (f.state.effort ?? 0) : 0;
         euler.set(
           stranded ? Math.PI / 2 - flop * 0.22 : f.state.turn * 0.06,
           -f.state.heading,
-          falling ? -0.35 : 0,
+          falling
+            ? -0.35
+            : f.state.behavior === "foraging" && f.state.swimming
+              ? -0.2 + Math.sin(time * 6 + f.state.phase) * 0.06
+              : 0,
           "YXZ",
         );
         orientation.setFromEuler(euler);
         f.object.quaternion.slerp(orientation, 1 - Math.exp(-dt * 9));
         for (const fin of f.fins)
-          fin.morphTargetInfluences[0] = stranded
-            ? flop * 0.45
-            : Math.sin(
-                time * (falling ? 3 : 4 + f.state.speed) + f.state.phase,
-              ) * 0.7;
+          fin.morphTargetInfluences[0] = dead
+            ? 0
+            : stranded
+              ? flop * 0.45
+              : Math.sin(
+                  time * (falling ? 3 : 4 + f.state.speed) + f.state.phase,
+                ) * 0.7;
+      }
+      for (let i = fish.length - 1; i >= 0; i--) {
+        const f = fish[i];
+        if (f.state.mode === "dead" && f.state.fade <= 0) {
+          scene.remove(f.object);
+          for (const material of f.materials) material.dispose();
+          fish.splice(i, 1);
+        }
       }
     },
     reset() {
@@ -150,6 +172,8 @@ export function createFishSystem(scene, simulation) {
         limit,
         falling: fish.filter((f) => f.state.mode === "falling").length,
         stranded: fish.filter((f) => f.state.mode === "stranded").length,
+        shallow: fish.filter((f) => f.state.mode === "shallow").length,
+        dead: fish.filter((f) => f.state.mode === "dead").length,
         swimming: fish.filter((f) => f.state.swimming).length,
         valid: fish.every(
           (f) =>

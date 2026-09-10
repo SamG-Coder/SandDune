@@ -60,6 +60,27 @@ test("goldfish drop, strand on sand, hold-spawn varied fish and respect the limi
     for (let i = 0; i < 90; i++) sandTest.fishSystem.update(1 / 30);
   });
   await page.screenshot({ path: ".artifacts/fish-browser-test.png" });
+  // Drain the pool, then exercise death rendering and removal with the real models.
+  await page.evaluate(() => {
+    sandTest.simulation.water.fill(0);
+    for (let i = 0; i < 450; i++) sandTest.fishSystem.update(1 / 30);
+  });
+  expect(await page.evaluate(() => sandDiagnostics().fish.dead)).toBe(5);
+  await page.evaluate(() => {
+    for (let i = 0; i < 35; i++) sandTest.fishSystem.update(1 / 30);
+  });
+  await page.screenshot({ path: ".artifacts/fish-fade-test.png" });
+  expect(
+    await page.evaluate(() =>
+      sandTest.fishSystem.fish.every((f) =>
+        f.materials.every((m) => m.alphaHash && m.opacity < 1),
+      ),
+    ),
+  ).toBe(true);
+  await page.evaluate(() => {
+    for (let i = 0; i < 90; i++) sandTest.fishSystem.update(1 / 30);
+  });
+  expect(await page.evaluate(() => sandDiagnostics().fish.count)).toBe(0);
   await page.getByRole("button", { name: "Reset sand", exact: true }).click();
   expect(await page.evaluate(() => sandDiagnostics().fish.count)).toBe(0);
   expect(errors).toEqual([]);
