@@ -276,7 +276,13 @@ $("clear").addEventListener("click", () => {
 $("brush").addEventListener("input", (event) => {
   state.radius = Number(event.target.value);
 });
+$("fish-limit").addEventListener("input", (event) => {
+  fishSystem.setLimit(event.target.value);
+});
 function setTool(tool) {
+  $("fish-controls").hidden = tool !== "fish";
+  $("brush").hidden = tool === "fish";
+  document.querySelector('label[for="brush"]').hidden = tool === "fish";
   $("tap-controls").hidden = tool !== "water";
   state.tool = tool;
   uniforms.uWaterTool.value = tool === "water" ? 1 : 0;
@@ -290,7 +296,7 @@ function setTool(tool) {
   renderer.domElement.style.cursor = tool === "orbit" ? "grab" : "crosshair";
   $("hint").textContent =
     tool === "fish"
-      ? "Click deep water to add a goldfish · Right-drag to orbit"
+      ? "Hold to drop goldfish · Fish need deep water to swim"
       : tool === "orbit"
         ? "Drag to orbit · Scroll / pinch to zoom"
         : tool === "water"
@@ -338,6 +344,8 @@ addEventListener("keydown", (event) => {
 const pointer = new THREE.Vector2(),
   raycaster = new THREE.Raycaster();
 let pointerInside = false,
+  droppingFish = false,
+  fishDropTime = 0,
   painting = false,
   strokePlaneY = null,
   lastStroke = null,
@@ -394,6 +402,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   pointerCount = activePointers.size;
   readPointer(event);
   if (pointerCount > 1) {
+    droppingFish = false;
     painting = false;
     lastStroke = null;
     return;
@@ -403,7 +412,10 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     if (state.tool === "fish") {
       $("hint").textContent = hit
         ? fishSystem.add(hit.x, hit.z)
-        : "Choose deeper, wider water for the goldfish.";
+        : "Point inside the glass box to drop fish.";
+      droppingFish = !!hit;
+      fishDropTime = 0;
+      renderer.domElement.setPointerCapture(event.pointerId);
       painting = false;
       lastStroke = null;
       return;
@@ -416,6 +428,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
 });
 renderer.domElement.addEventListener("pointermove", readPointer);
 function finishPointer(event) {
+  droppingFish = false;
   if (event.type === "pointerup" && painting && !lastStroke) {
     const hit = pickSand();
     if (hit) {
@@ -442,6 +455,7 @@ renderer.domElement.addEventListener("pointerleave", () => {
   if (!painting) pointerInside = false;
 });
 addEventListener("blur", () => {
+  droppingFish = false;
   painting = false;
   lastStroke = null;
   activePointers.clear();
@@ -468,6 +482,15 @@ function frame(now) {
   const hit = pointerInside && state.tool !== "orbit" ? pickSand() : null;
   if (hit) uniforms.uBrush.value.set(hit.x, hit.z, state.radius);
   else uniforms.uBrush.value.z = -1;
+  if (droppingFish && state.tool === "fish") {
+    fishDropTime += delta;
+    if (fishDropTime >= 0.32 && hit) {
+      fishDropTime = 0;
+      $("hint").textContent = fishSystem.add(hit.x, hit.z);
+    }
+  } else droppingFish = false;
+  $("fish-count").textContent =
+    `${fishSystem.fish.length} / ${fishSystem.limit}`;
   if (painting && hit) {
     const start = lastStroke || hit,
       distance = Math.hypot(hit.x - start.x, hit.z - start.z),

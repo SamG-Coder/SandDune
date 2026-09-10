@@ -35,7 +35,7 @@
         ><button
           data-tool="fish"
           aria-pressed="false"
-          title="Drop a goldfish in deep water (6)"
+          title="Hold to drop goldfish (6)"
         >
           Fish</button
         ><button data-tool="orbit" aria-pressed="false" title="Move camera (4)">
@@ -61,6 +61,17 @@
             aria-label="Tap flow"
           />
           <output id="tap-flow-value">100%</output></span
+        ><span id="fish-controls" hidden
+          ><label for="fish-limit">Fish limit</label
+          ><input
+            id="fish-limit"
+            type="range"
+            min="1"
+            max="64"
+            value="24"
+            step="1"
+            aria-label="Fish limit"
+          /><output id="fish-count">0 / 24</output></span
         ><button id="clear" title="Reset sand and water">Reset sand</button>
       </div>
       <details class="interface conditions">

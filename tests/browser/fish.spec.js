@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("Blender goldfish load, reject dry placement, swim in water, and reset", async ({
+test("goldfish drop, strand on sand, hold-spawn varied fish and respect the limit", async ({
   page,
 }) => {
   const errors = [];
@@ -11,39 +11,54 @@ test("Blender goldfish load, reject dry placement, swim in water, and reset", as
   await page.goto("/");
   await page.waitForFunction(() => window.sandDiagnostics?.().fish.loaded);
   await page.getByRole("button", { name: "Fish", exact: true }).click();
-  const dry = await page.evaluate(() => sandTest.projectSand(0, 0));
-  await page.mouse.click(dry.x, dry.y);
-  expect(await page.evaluate(() => sandDiagnostics().fish.count)).toBe(0);
-  await expect(page.locator("#hint")).toContainText("deeper");
   await page.evaluate(() => {
     const { simulation: s, state, camera } = sandTest;
     s.height.fill(0);
-    s.water.fill(4);
-    s.moisture.fill(0.55);
-    s.hasWater = true;
+    s.water.fill(0);
     state.wind = 0;
     camera.position.set(8, 12, 10);
   });
-  await page.waitForTimeout(700);
-  // The central camera ray meets this deliberately prepared, deep water surface.
+  await page.waitForTimeout(500);
   await page.mouse.click(480, 320);
+  expect(await page.evaluate(() => sandDiagnostics().fish.falling)).toBe(1);
+  await page.evaluate(() => {
+    for (let i = 0; i < 90; i++) sandTest.fishSystem.update(1 / 30);
+  });
+  expect(await page.evaluate(() => sandDiagnostics().fish.stranded)).toBe(1);
+  await page.evaluate(() => {
+    const { simulation: s, fishSystem: f } = sandTest;
+    f.reset();
+    s.water.fill(4);
+    s.moisture.fill(0.55);
+    s.hasWater = true;
+  });
+  await page.locator("#fish-limit").fill("4");
+  await page.mouse.move(480, 320);
+  await page.mouse.down();
   await expect
-    .poll(() => page.evaluate(() => sandDiagnostics().fish.count))
-    .toBe(1);
-  const before = await page.evaluate(() => ({
-    ...sandTest.fishSystem.fish[0].state,
-  }));
-  await page.waitForTimeout(1200);
-  const after = await page.evaluate(() => ({
-    ...sandTest.fishSystem.fish[0].state,
-  }));
-  expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeGreaterThan(
-    0.01,
-  );
-  expect(await page.evaluate(() => sandDiagnostics().fish.valid)).toBe(true);
+    .poll(() => page.evaluate(() => sandDiagnostics().fish.count), {
+      timeout: 20000,
+    })
+    .toBe(4);
+  await page.mouse.up();
+  await page.evaluate(() => {
+    for (let i = 0; i < 120; i++) sandTest.fishSystem.update(1 / 30);
+  });
+  expect(await page.evaluate(() => sandDiagnostics().fish.swimming)).toBe(4);
   expect(
-    await page.evaluate(() => sandTest.fishSystem.fish[0].fins.length),
-  ).toBeGreaterThan(0);
+    await page.evaluate(
+      () => new Set(sandTest.fishSystem.fish.map((f) => f.state.size)).size,
+    ),
+  ).toBe(4);
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => sandDiagnostics().fish.count)).toBe(4);
+  expect(await page.evaluate(() => sandDiagnostics().fish.valid)).toBe(true);
+  await page.locator("#fish-limit").fill("12");
+  await page.mouse.click(480, 320);
+  expect(await page.evaluate(() => sandDiagnostics().fish.count)).toBe(5);
+  await page.evaluate(() => {
+    for (let i = 0; i < 90; i++) sandTest.fishSystem.update(1 / 30);
+  });
   await page.screenshot({ path: ".artifacts/fish-browser-test.png" });
   await page.getByRole("button", { name: "Reset sand", exact: true }).click();
   expect(await page.evaluate(() => sandDiagnostics().fish.count)).toBe(0);

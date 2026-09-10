@@ -2,19 +2,22 @@
 export const FISH_RADIUS = 1.7;
 export const FISH_HALF_HEIGHT = 0.78;
 const footprintCache = new WeakMap();
-function footprint(s) {
-  if (footprintCache.has(s)) return footprintCache.get(s);
+function footprint(s, size = 1) {
+  if (!footprintCache.has(s)) footprintCache.set(s, new Map());
+  const cache = footprintCache.get(s);
+  if (cache.has(size)) return cache.get(size);
+  const radius = FISH_RADIUS * size;
   const points = [],
     step = Math.min(0.35, s.cell * 0.5);
-  for (let z = -FISH_RADIUS; z <= FISH_RADIUS; z += step)
-    for (let x = -FISH_RADIUS; x <= FISH_RADIUS; x += step)
-      if (x * x + z * z <= FISH_RADIUS * FISH_RADIUS) points.push([x, z]);
+  for (let z = -radius; z <= radius; z += step)
+    for (let x = -radius; x <= radius; x += step)
+      if (x * x + z * z <= radius * radius) points.push([x, z]);
   for (let k = 0; k < 32; k++)
     points.push([
-      Math.cos((k * Math.PI) / 16) * FISH_RADIUS,
-      Math.sin((k * Math.PI) / 16) * FISH_RADIUS,
+      Math.cos((k * Math.PI) / 16) * radius,
+      Math.sin((k * Math.PI) / 16) * radius,
     ]);
-  footprintCache.set(s, points);
+  cache.set(size, points);
   return points;
 }
 export function sampleWater(s, x, z) {
@@ -33,69 +36,147 @@ export function sampleWater(s, x, z) {
     (s.water[i + n] * (1 - fx) + s.water[i + n + 1] * fx) * fz
   );
 }
-export function fishHabitat(s, x, z) {
+export function fishHabitat(s, x, z, size = 1) {
   if (!Number.isFinite(x + z)) return null;
   let floor = -Infinity,
     ceiling = Infinity;
   // Include body interior and the entire fin envelope, not just the centre.
-  for (const [dx, dz] of footprint(s)) {
+  for (const [dx, dz] of footprint(s, size)) {
     const px = x + dx,
       pz = z + dz;
     const d = sampleWater(s, px, pz);
-    if (d < 2 * FISH_HALF_HEIGHT + 0.4) return null;
+    if (d < 2 * FISH_HALF_HEIGHT * size + 0.4) return null;
     const bed = s.sample(px, pz);
-    floor = Math.max(floor, bed + FISH_HALF_HEIGHT + 0.2);
-    ceiling = Math.min(ceiling, bed + d - FISH_HALF_HEIGHT - 0.2);
+    floor = Math.max(floor, bed + FISH_HALF_HEIGHT * size + 0.2);
+    ceiling = Math.min(ceiling, bed + d - FISH_HALF_HEIGHT * size - 0.2);
   }
   return floor <= ceiling ? { floor, ceiling } : null;
 }
-export function createFishState(s, x, z, id = 0) {
-  const habitat = fishHabitat(s, x, z);
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const angleDelta = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+export function createFishState(s, x, z, id = 0, size = 1) {
+  const habitat = fishHabitat(s, x, z, size);
   if (!habitat) return null;
   return {
     x,
     z,
+    size,
     y: (habitat.floor + habitat.ceiling) / 2,
     heading: id * 2.399,
     phase: id * 1.7,
     swimming: true,
+    mode: "swimming",
+    speed: 1.2 + 0.35 * Math.sin(id * 7.1),
+    turn: 0,
+    decision: 0,
   };
 }
-export function advanceFish(s, fish, dt, time) {
-  const here = fishHabitat(s, fish.x, fish.z);
+export function createDropState(s, x, z, id, size = 1) {
+  const edge = s.size / 2 - FISH_RADIUS * size;
+  x = clamp(x, -edge, edge);
+  z = clamp(z, -edge, edge);
+  return {
+    x,
+    z,
+    size,
+    y: s.sample(x, z) + sampleWater(s, x, z) + 10,
+    heading: id * 2.399,
+    phase: id * 1.7,
+    swimming: false,
+    mode: "falling",
+    velocityY: 0,
+    speed: 1.2 + 0.35 * Math.sin(id * 7.1),
+    turn: 0,
+    decision: 0,
+  };
+}
+export function advanceFish(s, fish, dt, time, peers = []) {
+  if (dt <= 0) return;
+  dt = Math.min(dt, 0.1);
+  const size = fish.size ?? 1;
+  const bed = s.sample(fish.x, fish.z);
+  const here = fishHabitat(s, fish.x, fish.z, size);
+  if (fish.mode === "falling") {
+    // Integrate gravity until actual contact; no teleport from the emitter.
+    fish.y += fish.velocityY * dt - 4.905 * dt * dt;
+    fish.velocityY -= 9.81 * dt;
+    const landing = here ? here.ceiling : bed + 0.3 * size;
+    if (fish.y > landing) return;
+    fish.y = landing;
+    fish.velocityY = 0;
+    fish.mode = here ? "swimming" : "stranded";
+  }
   if (!here) {
     fish.swimming = false;
-    fish.y = s.sample(fish.x, fish.z) + 0.3;
+    fish.mode = "stranded";
+    // Keep stranded fish at their landing location; flooding can rescue them.
+    fish.y += (bed + 0.3 * size - fish.y) * Math.min(1, dt * 8);
     return;
   }
   fish.swimming = true;
-  const steps = Math.max(1, Math.ceil((dt * 1.5) / 0.15)),
-    step = Math.min(dt, 0.25) / steps;
-  for (let n = 0; n < steps; n++) {
-    const intended =
-      fish.heading + Math.sin(time * 0.65 + fish.phase) * step * 0.45;
-    let moved = false;
-    for (const turn of [0, 0.35, -0.35, 0.75, -0.75, 1.3, -1.3, Math.PI]) {
-      const angle = intended + turn,
-        x = fish.x + Math.cos(angle) * step * 1.5,
-        z = fish.z + Math.sin(angle) * step * 1.5;
-      if (fishHabitat(s, x, z)) {
-        fish.x = x;
-        fish.z = z;
-        fish.heading = angle;
-        moved = true;
+  fish.mode = "swimming";
+  const speed = fish.speed * (0.8 + 0.2 * Math.sin(time * 0.9 + fish.phase));
+  fish.decision -= dt;
+  if (fish.decision <= 0) {
+    fish.decision = 0.18;
+    let desired = fish.heading + Math.sin(time * 0.5 + fish.phase) * 0.5;
+    let repelX = 0,
+      repelZ = 0;
+    for (const other of peers) {
+      if (other === fish || !other.swimming) continue;
+      const dx = fish.x - other.x,
+        dz = fish.z - other.z,
+        d = Math.hypot(dx, dz);
+      if (d < 3 * size && d > 0.001) {
+        repelX += dx / (d * d);
+        repelZ += dz / (d * d);
+      }
+    }
+    if (Math.hypot(repelX, repelZ) > 0.15)
+      desired = Math.atan2(
+        Math.sin(desired) + repelZ,
+        Math.cos(desired) + repelX,
+      );
+    // Probe ahead before the shoreline, then rotate towards an escape heading.
+    for (const turn of [0, 0.5, -0.5, 1, -1, 1.6, -1.6, Math.PI]) {
+      const a = desired + turn;
+      if (
+        fishHabitat(
+          s,
+          fish.x + Math.cos(a) * 1.1 * size,
+          fish.z + Math.sin(a) * 1.1 * size,
+          size,
+        )
+      ) {
+        fish.targetHeading = a;
         break;
       }
     }
-    if (!moved) break;
   }
-  const habitat = fishHabitat(s, fish.x, fish.z);
+  const change = clamp(
+    angleDelta(fish.targetHeading ?? fish.heading, fish.heading),
+    -1.5 * dt,
+    1.5 * dt,
+  );
+  fish.heading += change;
+  fish.turn = change / dt;
+  const distance = speed * dt;
+  const x = fish.x + Math.cos(fish.heading) * distance,
+    z = fish.z + Math.sin(fish.heading) * distance;
+  const next = fishHabitat(s, x, z, size);
+  if (next) {
+    fish.x = x;
+    fish.z = z;
+  }
+  const habitat = next || here;
   const target =
     (habitat.floor + habitat.ceiling) / 2 +
     Math.sin(time * 0.7 + fish.phase) *
       Math.min(0.15, (habitat.ceiling - habitat.floor) * 0.25);
-  fish.y = Math.max(
+  fish.y = clamp(
+    fish.y + (target - fish.y) * Math.min(1, dt * 2),
     habitat.floor,
-    Math.min(habitat.ceiling, fish.y + (target - fish.y) * Math.min(1, dt * 2)),
+    habitat.ceiling,
   );
 }

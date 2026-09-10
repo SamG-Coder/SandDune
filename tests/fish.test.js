@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { SandSimulation } from "../src/terrain.js";
 import {
   createFishState,
+  createDropState,
   fishHabitat,
   advanceFish,
   sampleWater,
@@ -66,4 +67,40 @@ test("water sampling handles the exact boundary without wrapping", () => {
   const s = pool();
   assert.equal(sampleWater(s, 10, 10), 4);
   assert.equal(sampleWater(s, 10.01, 0), 0);
+});
+
+test("drops fall continuously, land on sand and resume swimming after flooding", () => {
+  const s = pool();
+  s.water.fill(0);
+  const f = createDropState(s, 0, 0, 0, 0.8);
+  const start = f.y;
+  advanceFish(s, f, 0.1, 0);
+  assert.ok(f.y < start && f.y > start - 1);
+  assert.equal(f.mode, "falling");
+  for (let i = 0; i < 60; i++) advanceFish(s, f, 1 / 30, i / 30);
+  assert.equal(f.mode, "stranded");
+  assert.equal(f.swimming, false);
+  assert.equal(f.x, 0);
+  assert.equal(f.z, 0);
+  s.water.fill(4);
+  advanceFish(s, f, 0.1, 3);
+  assert.equal(f.mode, "swimming");
+  assert.ok(fishHabitat(s, f.x, f.z, f.size));
+});
+test("turns are bounded even when approaching dry ground", () => {
+  const s = pool(),
+    f = createFishState(s, 7, 0);
+  f.heading = 0;
+  for (let i = 0; i < 300; i++) {
+    const heading = f.heading;
+    advanceFish(s, f, 1 / 30, i / 30);
+    assert.ok(Math.abs(f.heading - heading) <= 1.5 / 30 + 1e-9);
+    assert.ok(fishHabitat(s, f.x, f.z));
+  }
+});
+test("individual body size controls required water clearance", () => {
+  const s = pool();
+  s.water.fill(1.8);
+  assert.ok(fishHabitat(s, 0, 0, 0.7));
+  assert.equal(fishHabitat(s, 0, 0, 1.15), null);
 });
